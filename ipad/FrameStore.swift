@@ -1,4 +1,8 @@
 import Foundation
+struct FrameSnapshot: Sendable {
+    let data: Data
+    let epoch: UInt64
+}
 struct RawTileUpdate: Sendable {
     let batchID: UInt64
     let x: Int
@@ -17,12 +21,16 @@ final class FrameStore: @unchecked Sendable {
     private var lastBatch: UInt64?
     private var committedGeneration: UInt64 = 0
     private var consumedGeneration: UInt64 = 0
+    private var epoch: UInt64 = 0
+    private var receivedFrames: UInt64 = 0
+    private var presentedFrames: UInt64 = 0
     func reset() {
         lock.lock(); defer { lock.unlock() }
         framebuffer = Data(count: DisplayConfig.frameBytes)
         batchTiles.removeAll(keepingCapacity: true)
         tileIndices.removeAll(keepingCapacity: true)
         buildingBatch = nil; lastBatch = nil; needsFullFrame = true
+        epoch &+= 1; receivedFrames = 0; presentedFrames = 0
         committedGeneration &+= 1
     }
     func receive(tile: RawTileUpdate) -> Bool {
@@ -63,14 +71,33 @@ final class FrameStore: @unchecked Sendable {
         batchTiles.removeAll(keepingCapacity: true)
         tileIndices.removeAll(keepingCapacity: true)
         buildingBatch = nil; lastBatch = batchID; needsFullFrame = false
+        receivedFrames &+= 1
         committedGeneration &+= 1
         return true
     }
-    func consume() -> Data? {
+    func publish(frame: Data, batchID: UInt64) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard frame.count == DisplayConfig.frameBytes, buildingBatch == nil,
+              lastBatch == nil || batchID > lastBatch! else { return false }
+        framebuffer = frame
+        lastBatch = batchID; needsFullFrame = false
+        committedGeneration &+= 1; receivedFrames &+= 1
+        return true
+    }
+    func didPresent(epoch frameEpoch: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        if frameEpoch == epoch { presentedFrames &+= 1 }
+    }
+    func statistics() -> (received: UInt64, presented: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        return (receivedFrames, presentedFrames)
+    }
+    func consume() -> Data? { consumeFrame()?.data }
+    func consumeFrame() -> FrameSnapshot? {
         lock.lock(); defer { lock.unlock() }
         guard committedGeneration != consumedGeneration else { return nil }
         consumedGeneration = committedGeneration
         // Data value semantics isolate later writes by copy-on-write.
-        return framebuffer
+        return FrameSnapshot(data: framebuffer, epoch: epoch)
     }
 }

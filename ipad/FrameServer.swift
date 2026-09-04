@@ -8,6 +8,9 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
     private let queue = DispatchQueue(label: "V7.native.image", qos: .userInteractive)
     private var listener: NWListener?
     private var connection: NWConnection?
+    private var lastStatsTime: UInt64 = 0
+    private var lastReceived: UInt64 = 0
+    private var lastPresented: UInt64 = 0
     private func report(_ message: String) {
         DispatchQueue.main.async { [weak self] in self?.status = message }
     }
@@ -23,7 +26,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
             l.stateUpdateHandler = { [weak self, weak l] state in
                 guard let self, let l, self.listener === l else { return }
                 switch state {
-                case .ready: self.report("READY • NATIVE 2360×1640 • USB :55001")
+                case .ready: self.report("READY v2 • NATIVE 2360×1640 • USB :55001")
                 case .failed(let e): self.report("LISTENER FAILED • \(e.localizedDescription)")
                 case .waiting(let e): self.report("WAITING • \(e.localizedDescription)")
                 default: break
@@ -34,6 +37,8 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                 self.connection?.cancel()
                 self.frameStore.reset()
                 self.connection = c
+                self.lastStatsTime = DispatchTime.now().uptimeNanoseconds
+                self.lastReceived = 0; self.lastPresented = 0
                 c.stateUpdateHandler = { [weak self, weak c] state in
                     guard let self, let c, self.connection === c else { return }
                     switch state {
@@ -67,6 +72,26 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
         c.cancel(); connection = nil
         frameStore.reset()
         report("DISCONNECTED • \(message)")
+    }
+    private func reportFrame(on c: NWConnection, sequence: UInt64) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let stats = frameStore.statistics()
+        let seconds = Double(now - lastStatsTime) / 1_000_000_000
+        guard seconds >= 1 || stats.received == 1 else { return }
+        let interval = max(seconds, 0.001)
+        let rx = Double(stats.received - lastReceived) / interval
+        let shown = Double(stats.presented - lastPresented) / interval
+        report(String(format: "LIVE v2 • RX %.1f fps • shown %.1f fps • 10-bit P3", rx, shown))
+        lastStatsTime = now; lastReceived = stats.received; lastPresented = stats.presented
+        var data = Data("IPD71STA".utf8)
+        for value in [sequence, stats.received, stats.presented] {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        c.send(content: data, completion: .contentProcessed { [weak self, weak c] error in
+            guard let self, let c, self.connection === c else { return }
+            if let error { self.fail(c, error.localizedDescription) }
+        })
     }
     private func receiveExact(_ count: Int, on c: NWConnection, completion: @escaping (Data) -> Void) {
         var buffer = Data(); buffer.reserveCapacity(count)
@@ -115,9 +140,18 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                         self.receivePacket(on: c)
                     }
                 }
+            } else if type == 3, payloadSize == DisplayConfig.frameBytes {
+                self.receiveExact(payloadSize, on: c) { [weak self] pixels in
+                    guard let self, self.connection === c else { return }
+                    guard self.frameStore.publish(frame: pixels, batchID: sequence) else {
+                        self.fail(c, "Invalid full frame"); return
+                    }
+                    self.reportFrame(on: c, sequence: sequence)
+                    self.receivePacket(on: c)
+                }
             } else if type == 2, payloadSize == 0 {
                 guard self.frameStore.commit(batchID: sequence) else { self.fail(c, "Incomplete native frame"); return }
-                self.report("LIVE • 2360×1640 • 10-bit P3 • batch \(sequence)")
+                self.reportFrame(on: c, sequence: sequence)
                 self.receivePacket(on: c)
             } else { self.fail(c, "Invalid packet type") }
         }

@@ -37,6 +37,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     private let textures: [MTLTexture]
     private var front = 0
+    private var frontPending = false
+    private var frontEpoch: UInt64 = 0
     private let gpuAvailable = DispatchSemaphore(value: 1)
 
     private let pipeline: MTLRenderPipelineState
@@ -151,7 +153,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard gpuAvailable.wait(timeout: .now()) == .success else { return }
         var submitted = false
         defer { if !submitted { gpuAvailable.signal() } }
-        if let frame = store.consume() {
+        if let snapshot = store.consumeFrame() {
+            let frame = snapshot.data
             let next = 1 - front
 
             frame.withUnsafeBytes { raw in
@@ -166,6 +169,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             }
 
             front = next
+            frontEpoch = snapshot.epoch
+            frontPending = true
         }
 
         guard
@@ -195,6 +200,12 @@ final class Renderer: NSObject, MTKViewDelegate {
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         enc.endEncoding()
 
+        if frontPending {
+            let frameEpoch = frontEpoch
+            let frameStore = store
+            drawable.addPresentedHandler { _ in frameStore.didPresent(epoch: frameEpoch) }
+            frontPending = false
+        }
         cb.present(drawable)
         let gate = gpuAvailable
         cb.addCompletedHandler { _ in gate.signal() }
