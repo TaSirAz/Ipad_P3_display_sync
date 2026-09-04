@@ -83,3 +83,18 @@ check(mixed.publish(frame: full, batchID: 3), "Complete frame follows partial up
 check(mixed.consume() == full, "Complete frame resets all pixels exactly")
 check(!mixed.receive(tile: tile(0, 0, batch: 2, value: 1)), "Old partial batch rejected")
 print("PASS: 64 HC block interoperability and alternating complete/partial atomic RAW frames")
+
+store.reset()
+store.beginTiming(sequence: 42, now: 123)
+check(store.publish(frame: full, batchID: 42), "Timing full frame")
+let timed = store.consumeFrame()!
+check(timed.sequence == 42 && timed.receiveStartNs == 123 && timed.readyNs > 0, "Timing associated with frame")
+store.timing(42, 9, 100, epoch: timed.epoch)
+check(store.takeTiming().count == 1, "Timing event drained")
+store.reset()
+store.timing(42, 9, 100, epoch: timed.epoch)
+check(store.takeTiming().isEmpty, "Stale timing rejected across reset")
+for i in 0..<9000 { store.timing(UInt64(i), 1, 0) }
+let bounded = store.takeTiming()
+check(bounded.count == 8193 && bounded.last!.1 == 99 && bounded.last!.2 == 808, "Timing bounded and losses reported")
+print("PASS: per-frame timing association, epoch isolation, bounded reporting")

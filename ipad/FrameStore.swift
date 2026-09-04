@@ -49,6 +49,9 @@ struct FrameSnapshot: Sendable {
     let data: Data
     let epoch: UInt64
     let countable: Bool
+    let sequence: UInt64
+    let readyNs: UInt64
+    let receiveStartNs: UInt64
 }
 struct RawTileUpdate: Sendable {
     let batchID: UInt64
@@ -71,6 +74,27 @@ final class FrameStore: @unchecked Sendable {
     private var epoch: UInt64 = 0
     private var receivedFrames: UInt64 = 0
     private var presentedFrames: UInt64 = 0
+    private var readyNs: UInt64 = 0
+    private var timingSequence: UInt64 = 0
+    private var receiveStartNs: UInt64 = 0
+    private var pendingReceiveStartNs: UInt64 = 0
+    private var events: [(UInt64, UInt64, UInt64)] = []
+    private var lostEvents: UInt64 = 0
+    func beginTiming(sequence: UInt64, now: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        if timingSequence != sequence || pendingReceiveStartNs == 0 { timingSequence = sequence; pendingReceiveStartNs = now }
+    }
+    func timing(_ sequence: UInt64, _ metric: UInt64, _ value: UInt64, epoch expected: UInt64? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        if let expected, expected != epoch { return }
+        if events.count < 8192 { events.append((sequence, metric, value)) } else { lostEvents &+= 1 }
+    }
+    func takeTiming() -> [(UInt64, UInt64, UInt64)] {
+        lock.lock(); defer { lock.unlock() }
+        var result = events; events.removeAll(keepingCapacity: true)
+        if lostEvents > 0 { result.append((0, 99, lostEvents)); lostEvents = 0 }
+        return result
+    }
     func reset() {
         lock.lock(); defer { lock.unlock() }
         framebuffer = Data(count: DisplayConfig.frameBytes)
@@ -78,6 +102,7 @@ final class FrameStore: @unchecked Sendable {
         tileIndices.removeAll(keepingCapacity: true)
         buildingBatch = nil; lastBatch = nil; needsFullFrame = true
         epoch &+= 1; receivedFrames = 0; presentedFrames = 0
+        events.removeAll(keepingCapacity: true); lostEvents = 0; readyNs = 0; receiveStartNs = 0; pendingReceiveStartNs = 0; timingSequence = 0
         committedGeneration &+= 1
     }
     func receive(tile: RawTileUpdate) -> Bool {
@@ -120,6 +145,8 @@ final class FrameStore: @unchecked Sendable {
         buildingBatch = nil; lastBatch = batchID; needsFullFrame = false
         receivedFrames &+= 1
         committedGeneration &+= 1
+        receiveStartNs = pendingReceiveStartNs
+        readyNs = DispatchTime.now().uptimeNanoseconds
         return true
     }
     func publish(frame: Data, batchID: UInt64) -> Bool {
@@ -129,6 +156,8 @@ final class FrameStore: @unchecked Sendable {
         framebuffer = frame
         lastBatch = batchID; needsFullFrame = false
         committedGeneration &+= 1; receivedFrames &+= 1
+        receiveStartNs = pendingReceiveStartNs
+        readyNs = DispatchTime.now().uptimeNanoseconds
         return true
     }
     func didPresent(epoch frameEpoch: UInt64) {
@@ -145,6 +174,6 @@ final class FrameStore: @unchecked Sendable {
         guard committedGeneration != consumedGeneration else { return nil }
         consumedGeneration = committedGeneration
         // Data value semantics isolate later writes by copy-on-write.
-        return FrameSnapshot(data: framebuffer, epoch: epoch, countable: receivedFrames > 0)
+        return FrameSnapshot(data: framebuffer, epoch: epoch, countable: receivedFrames > 0, sequence: lastBatch ?? 0, readyNs: readyNs, receiveStartNs: receiveStartNs)
     }
 }

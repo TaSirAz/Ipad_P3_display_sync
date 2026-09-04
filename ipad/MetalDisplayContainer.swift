@@ -39,6 +39,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var front = 0
     private var frontPending = false
     private var frontEpoch: UInt64 = 0
+    private var frontSequence: UInt64 = 0, frontReceiveStart: UInt64 = 0
     private let gpuAvailable = DispatchSemaphore(value: 1)
 
     private let pipeline: MTLRenderPipelineState
@@ -154,6 +155,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         var submitted = false
         defer { if !submitted { gpuAvailable.signal() } }
         if let snapshot = store.consumeFrame() {
+            let uploadStart = DispatchTime.now().uptimeNanoseconds
+            if snapshot.countable { store.timing(snapshot.sequence, 5, uploadStart - snapshot.readyNs, epoch: snapshot.epoch) }
             let frame = snapshot.data
             let next = 1 - front
 
@@ -168,11 +171,14 @@ final class Renderer: NSObject, MTKViewDelegate {
                 }
             }
 
+            if snapshot.countable { store.timing(snapshot.sequence, 6, DispatchTime.now().uptimeNanoseconds - uploadStart, epoch: snapshot.epoch) }
+            frontSequence = snapshot.sequence; frontReceiveStart = snapshot.receiveStartNs
             front = next
             frontEpoch = snapshot.epoch
             frontPending = snapshot.countable
         }
 
+        let renderStart = DispatchTime.now().uptimeNanoseconds
         guard
             let rp = view.currentRenderPassDescriptor,
             let drawable = view.currentDrawable,
@@ -203,7 +209,19 @@ final class Renderer: NSObject, MTKViewDelegate {
         if frontPending {
             let frameEpoch = frontEpoch
             let frameStore = store
-            drawable.addPresentedHandler { _ in frameStore.didPresent(epoch: frameEpoch) }
+            let sequence = frontSequence, receiveStart = frontReceiveStart
+            let submitNs = DispatchTime.now().uptimeNanoseconds
+            frameStore.timing(sequence, 7, submitNs - renderStart, epoch: frameEpoch)
+            drawable.addPresentedHandler { _ in
+                let now = DispatchTime.now().uptimeNanoseconds
+                frameStore.didPresent(epoch: frameEpoch)
+                frameStore.timing(sequence, 8, now - submitNs, epoch: frameEpoch)
+                if receiveStart > 0 { frameStore.timing(sequence, 10, now - receiveStart, epoch: frameEpoch) }
+            }
+            cb.addCompletedHandler { command in
+                let seconds = command.gpuEndTime - command.gpuStartTime
+                if seconds >= 0 && seconds.isFinite { frameStore.timing(sequence, 9, UInt64(seconds * 1_000_000_000), epoch: frameEpoch) }
+            }
             frontPending = false
         }
         cb.present(drawable)
