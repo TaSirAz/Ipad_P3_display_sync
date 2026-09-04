@@ -70,3 +70,16 @@ check(RawLossless.decode(invalid) == nil, "Invalid decoded size rejected")
 invalid = fixture; invalid[20] = 0; invalid[21] = 0; invalid[22] = 0; invalid[23] = 0
 check(RawLossless.decode(invalid) == nil, "Empty compressed block rejected")
 print("PASS: Windows LZ4 -> Apple Compression, all 3870400 synthetic 10-bit pixels exact, invalid blocks rejected")
+let hcFixture = try Data(contentsOf: URL(fileURLWithPath: "tests/fixtures/bgr10a2-hc64.bin"))
+check(RawLossless.decode(hcFixture) == unpacked, "64 HC blocks match all original pixels")
+let mixed = FrameStore()
+check(mixed.publish(frame: full, batchID: 1), "Complete frame starts mixed stream")
+let before = mixed.consume()!
+check(mixed.receive(tile: tile(0, 0, batch: 2, value: 98)), "Partial RAW after complete frame")
+check(mixed.commit(batchID: 2), "Partial update commits atomically")
+let after = mixed.consume()!
+check(after[0] == 98 && after[after.count-1] == 73 && before[0] == 73, "Mixed stream preserves unchanged pixels and old snapshot")
+check(mixed.publish(frame: full, batchID: 3), "Complete frame follows partial update")
+check(mixed.consume() == full, "Complete frame resets all pixels exactly")
+check(!mixed.receive(tile: tile(0, 0, batch: 2, value: 1)), "Old partial batch rejected")
+print("PASS: 64 HC block interoperability and alternating complete/partial atomic RAW frames")
