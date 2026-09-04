@@ -98,3 +98,28 @@ for i in 0..<9000 { store.timing(UInt64(i), 1, 0) }
 let bounded = store.takeTiming()
 check(bounded.count == 8193 && bounded.last!.1 == 99 && bounded.last!.2 == 808, "Timing bounded and losses reported")
 print("PASS: per-frame timing association, epoch isolation, bounded reporting")
+
+let piped = FrameStore()
+let pipedEpoch = piped.currentEpoch()
+func measurement(_ sequence: UInt64) -> PacketMeasurement {
+    let now = DispatchTime.now().uptimeNanoseconds
+    return PacketMeasurement(sequence: sequence, startNs: now, readNs: 0, appendNs: 0, callbacks: 1, queuedNs: now)
+}
+check(FrameWorkProcessor.apply(.full(full), measurement: measurement(1), epoch: pipedEpoch, store: piped), "Pipeline full")
+let stable = piped.consume()!
+check(FrameWorkProcessor.apply(.tile(tile(0,0,batch:2,value:99)), measurement: measurement(2), epoch: pipedEpoch, store: piped), "Pipeline tile")
+check(piped.consume() == nil, "Uncommitted tile never visible")
+check(FrameWorkProcessor.apply(.commit, measurement: measurement(2), epoch: pipedEpoch, store: piped), "Pipeline commit")
+check(piped.consume()![0] == 99 && stable[0] == 73, "Pipeline order and immutable snapshots")
+check(FrameWorkProcessor.apply(.lossless(hcFixture), measurement: measurement(3), epoch: pipedEpoch, store: piped), "Pipeline HC decode")
+check(piped.consume() == unpacked, "Pipeline decoded bytes exact")
+piped.reset()
+_ = piped.consume()
+check(!FrameWorkProcessor.apply(.full(full), measurement: measurement(4), epoch: pipedEpoch, store: piped), "Old queued frame rejected after reconnect")
+check(!piped.publish(frame: full, batchID: 4, expectedEpoch: pipedEpoch), "Decode completing after reset cannot publish")
+check(!piped.receive(tile: tile(0,0,batch:4,value:1), expectedEpoch: pipedEpoch), "Old queued tile rejected")
+check(!piped.commit(batchID: 4, expectedEpoch: pipedEpoch), "Old queued commit rejected")
+check(piped.consume() == nil, "Old connection leaves new framebuffer untouched")
+check(FrameWorkProcessor.apply(.full(full), measurement: measurement(1), epoch: piped.currentEpoch(), store: piped), "New connection accepts sequence restart")
+check(piped.consume() == full, "New connection frame exact")
+print("PASS: ordered processing preserves full/tile/commit/lossless pixels and rejects in-flight old-connection work")

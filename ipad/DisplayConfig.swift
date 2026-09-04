@@ -12,7 +12,7 @@ enum DisplayConfig {
     static let magic = "IPD71RAW"
     static var hello: Data {
         var data = Data("IPD71ACK".utf8)
-        for value in [UInt32(4), UInt32(width), UInt32(height), UInt32(refreshHz), UInt32(24), UInt32(tileSize)] {
+        for value in [UInt32(5), UInt32(width), UInt32(height), UInt32(refreshHz), UInt32(24), UInt32(tileSize)] {
             var little = value.littleEndian
             withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
         }

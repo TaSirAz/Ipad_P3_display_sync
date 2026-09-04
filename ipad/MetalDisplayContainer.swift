@@ -20,7 +20,7 @@ struct MetalDisplayContainer: UIViewRepresentable {
         if let layer = view.layer as? CAMetalLayer {
             layer.pixelFormat = .bgr10a2Unorm
             layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
-            layer.maximumDrawableCount = 3
+            layer.maximumDrawableCount = 2
         }
 
         view.delegate = context.coordinator
@@ -36,6 +36,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let queue: MTLCommandQueue
 
     private let textures: [MTLTexture]
+    private var needsRedraw = true
     private var front = 0
     private var frontPending = false
     private var frontEpoch: UInt64 = 0
@@ -148,13 +149,14 @@ final class Renderer: NSObject, MTKViewDelegate {
         super.init()
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { needsRedraw = true }
 
     func draw(in view: MTKView) {
         guard gpuAvailable.wait(timeout: .now()) == .success else { return }
         var submitted = false
         defer { if !submitted { gpuAvailable.signal() } }
         if let snapshot = store.consumeFrame() {
+            needsRedraw = true
             let uploadStart = DispatchTime.now().uptimeNanoseconds
             if snapshot.countable { store.timing(snapshot.sequence, 5, uploadStart - snapshot.readyNs, epoch: snapshot.epoch) }
             let frame = snapshot.data
@@ -178,6 +180,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             frontPending = snapshot.countable
         }
 
+        guard needsRedraw || frontPending else { return }
         let renderStart = DispatchTime.now().uptimeNanoseconds
         guard
             let rp = view.currentRenderPassDescriptor,
@@ -229,5 +232,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         cb.addCompletedHandler { _ in gate.signal() }
         submitted = true
         cb.commit()
+        needsRedraw = false
     }
 }

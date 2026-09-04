@@ -80,9 +80,12 @@ final class FrameStore: @unchecked Sendable {
     private var pendingReceiveStartNs: UInt64 = 0
     private var events: [(UInt64, UInt64, UInt64)] = []
     private var lostEvents: UInt64 = 0
-    func beginTiming(sequence: UInt64, now: UInt64) {
+    func currentEpoch() -> UInt64 { lock.lock(); defer { lock.unlock() }; return epoch }
+    @discardableResult func beginTiming(sequence: UInt64, now: UInt64, expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if let expectedEpoch, expectedEpoch != epoch { return false }
         if timingSequence != sequence || pendingReceiveStartNs == 0 { timingSequence = sequence; pendingReceiveStartNs = now }
+        return true
     }
     func timing(_ sequence: UInt64, _ metric: UInt64, _ value: UInt64, epoch expected: UInt64? = nil) {
         lock.lock(); defer { lock.unlock() }
@@ -105,8 +108,9 @@ final class FrameStore: @unchecked Sendable {
         events.removeAll(keepingCapacity: true); lostEvents = 0; readyNs = 0; receiveStartNs = 0; pendingReceiveStartNs = 0; timingSequence = 0
         committedGeneration &+= 1
     }
-    func receive(tile: RawTileUpdate) -> Bool {
+    func receive(tile: RawTileUpdate, expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if let expectedEpoch, expectedEpoch != epoch { return false }
         let size = DisplayConfig.tileSize
         guard tile.x >= 0, tile.y >= 0,
               tile.x < DisplayConfig.width, tile.y < DisplayConfig.height,
@@ -124,8 +128,9 @@ final class FrameStore: @unchecked Sendable {
         batchTiles.append(tile)
         return true
     }
-    func commit(batchID: UInt64) -> Bool {
+    func commit(batchID: UInt64, expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if let expectedEpoch, expectedEpoch != epoch { return false }
         guard buildingBatch == batchID,
               !needsFullFrame || batchTiles.count == DisplayConfig.tileCount else { return false }
         framebuffer.withUnsafeMutableBytes { dstRaw in
@@ -149,8 +154,9 @@ final class FrameStore: @unchecked Sendable {
         readyNs = DispatchTime.now().uptimeNanoseconds
         return true
     }
-    func publish(frame: Data, batchID: UInt64) -> Bool {
+    func publish(frame: Data, batchID: UInt64, expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if let expectedEpoch, expectedEpoch != epoch { return false }
         guard frame.count == DisplayConfig.frameBytes, buildingBatch == nil,
               lastBatch == nil || batchID > lastBatch! else { return false }
         framebuffer = frame
@@ -175,5 +181,45 @@ final class FrameStore: @unchecked Sendable {
         consumedGeneration = committedGeneration
         // Data value semantics isolate later writes by copy-on-write.
         return FrameSnapshot(data: framebuffer, epoch: epoch, countable: receivedFrames > 0, sequence: lastBatch ?? 0, readyNs: readyNs, receiveStartNs: receiveStartNs)
+    }
+}
+
+// Every mutation is serialized by FrameServer's processing queue. Epoch checks
+// ensure work already decoding during disconnect cannot modify a new connection.
+enum FrameWork: Sendable {
+    case tile(RawTileUpdate)
+    case full(Data)
+    case lossless(Data)
+    case commit
+}
+struct PacketMeasurement: Sendable {
+    let sequence: UInt64, startNs: UInt64, readNs: UInt64, appendNs: UInt64, callbacks: UInt64, queuedNs: UInt64
+}
+enum FrameWorkProcessor {
+    static func apply(_ work: FrameWork, measurement m: PacketMeasurement, epoch: UInt64, store: FrameStore) -> Bool {
+        let started = DispatchTime.now().uptimeNanoseconds
+        guard store.beginTiming(sequence: m.sequence, now: m.startNs, expectedEpoch: epoch) else { return false }
+        var decodeNs: UInt64 = 0
+        let publishStart: UInt64
+        switch work {
+        case .tile(let tile): return store.receive(tile: tile, expectedEpoch: epoch)
+        case .lossless(let data):
+            let before = DispatchTime.now().uptimeNanoseconds
+            guard let pixels = RawLossless.decode(data) else { return false }
+            decodeNs = DispatchTime.now().uptimeNanoseconds - before
+            publishStart = DispatchTime.now().uptimeNanoseconds
+            guard store.publish(frame: pixels, batchID: m.sequence, expectedEpoch: epoch) else { return false }
+        case .full(let pixels):
+            publishStart = DispatchTime.now().uptimeNanoseconds
+            guard store.publish(frame: pixels, batchID: m.sequence, expectedEpoch: epoch) else { return false }
+        case .commit:
+            publishStart = DispatchTime.now().uptimeNanoseconds
+            guard store.commit(batchID: m.sequence, expectedEpoch: epoch) else { return false }
+        }
+        let published = DispatchTime.now().uptimeNanoseconds
+        for (metric, value) in [(UInt64(1), m.readNs), (2, m.appendNs), (3, decodeNs), (4, published-publishStart), (11, m.callbacks), (12, started-m.queuedNs)] {
+            store.timing(m.sequence, metric, value, epoch: epoch)
+        }
+        return true
     }
 }
