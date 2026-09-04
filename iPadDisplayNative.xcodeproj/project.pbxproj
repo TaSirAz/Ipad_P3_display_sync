@@ -1,0 +1,31 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+3C4D5BF81259353996C99C21 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView.swift"; sourceTree = "<group>"; };
+D5B3906592863DD33AFC5412 = { isa = PBXBuildFile; fileRef = 3C4D5BF81259353996C99C21; };
+B9CFFB4BB5C5652ED9E21D07 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DisplayConfig.swift"; sourceTree = "<group>"; };
+1A290440FADA9712D0E489BD = { isa = PBXBuildFile; fileRef = B9CFFB4BB5C5652ED9E21D07; };
+494FA39E5C68783BF5F6577D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrameServer.swift"; sourceTree = "<group>"; };
+8A10111486C90562A29F5645 = { isa = PBXBuildFile; fileRef = 494FA39E5C68783BF5F6577D; };
+15639D9F1224D170385B067B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrameStore.swift"; sourceTree = "<group>"; };
+B4514B861CC7374C7128AF10 = { isa = PBXBuildFile; fileRef = 15639D9F1224D170385B067B; };
+8B8B12273B417883483D2CCA = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MetalDisplayContainer.swift"; sourceTree = "<group>"; };
+A4647F6ACA05E2BD1BCEC45A = { isa = PBXBuildFile; fileRef = 8B8B12273B417883483D2CCA; };
+54BF58D34591A81D1B5D3F16 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iPadDisplayV7App.swift"; sourceTree = "<group>"; };
+4510B7CA0AE8C820B680EFA2 = { isa = PBXBuildFile; fileRef = 54BF58D34591A81D1B5D3F16; };
+06271BAF49532C879AA3C58B = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+A172CEDCAE47474B615C54D5 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = iPadDisplayNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
+878A52FC5FF6A57D50B7B870 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D5B3906592863DD33AFC5412,1A290440FADA9712D0E489BD,8A10111486C90562A29F5645,B4514B861CC7374C7128AF10,A4647F6ACA05E2BD1BCEC45A,4510B7CA0AE8C820B680EFA2,); runOnlyForDeploymentPostprocessing = 0; };
+E2AA269EB967A8853A258BFA = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+41D311A605520FC7B8B9A980 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+DE0BA1B7666973438066D83D = { isa = PBXGroup; children = (3C4D5BF81259353996C99C21,B9CFFB4BB5C5652ED9E21D07,494FA39E5C68783BF5F6577D,15639D9F1224D170385B067B,8B8B12273B417883483D2CCA,54BF58D34591A81D1B5D3F16,06271BAF49532C879AA3C58B,); path = ipad; sourceTree = "<group>"; };
+0A3E27B8CA818264D75C8D81 = { isa = PBXGroup; children = (A172CEDCAE47474B615C54D5,); name = Products; sourceTree = "<group>"; };
+C8D2DC745BFC63C0D67231CE = { isa = PBXGroup; children = (DE0BA1B7666973438066D83D,0A3E27B8CA818264D75C8D81,); sourceTree = "<group>"; };
+433548979C024CC63B5F3B8D = { isa = XCBuildConfiguration; name = Debug; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; };
+B800A40FDE6F0A0218D9BCD2 = { isa = XCBuildConfiguration; name = Release; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_COMPILATION_MODE = wholemodule; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; };
+3C05BEEE7303EE3FA7B250FA = { isa = XCConfigurationList; buildConfigurations = (433548979C024CC63B5F3B8D,B800A40FDE6F0A0218D9BCD2,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+7EBA50094BFA750F0608695D = { isa = XCBuildConfiguration; name = Debug; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; PRODUCT_BUNDLE_IDENTIFIER = local.iPadDisplayV7.Native; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 2; INFOPLIST_FILE = ipad/Info.plist; GENERATE_INFOPLIST_FILE = NO; CODE_SIGN_STYLE = Automatic; MARKETING_VERSION = 7.2; CURRENT_PROJECT_VERSION = 2; SWIFT_EMIT_LOC_STRINGS = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; };
+792B3A5FC2586286261D1B60 = { isa = XCBuildConfiguration; name = Release; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; PRODUCT_BUNDLE_IDENTIFIER = local.iPadDisplayV7.Native; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 2; INFOPLIST_FILE = ipad/Info.plist; GENERATE_INFOPLIST_FILE = NO; CODE_SIGN_STYLE = Automatic; MARKETING_VERSION = 7.2; CURRENT_PROJECT_VERSION = 2; SWIFT_EMIT_LOC_STRINGS = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_COMPILATION_MODE = wholemodule; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; };
+268CBE1AF5194DBF401BFB20 = { isa = XCConfigurationList; buildConfigurations = (7EBA50094BFA750F0608695D,792B3A5FC2586286261D1B60,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+34A04005BCAF206EEC990BD9 = { isa = PBXNativeTarget; buildConfigurationList = 268CBE1AF5194DBF401BFB20; buildPhases = (878A52FC5FF6A57D50B7B870,E2AA269EB967A8853A258BFA,41D311A605520FC7B8B9A980,); buildRules = (); dependencies = (); name = iPadDisplayNative; productName = iPadDisplayNative; productReference = A172CEDCAE47474B615C54D5; productType = "com.apple.product-type.application"; };
+244210E48437B6556980A702 = { isa = PBXProject; attributes = { LastUpgradeCheck = 1600; }; buildConfigurationList = 3C05BEEE7303EE3FA7B250FA; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base,); mainGroup = C8D2DC745BFC63C0D67231CE; productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (34A04005BCAF206EEC990BD9,); };
+}; rootObject = 244210E48437B6556980A702; }

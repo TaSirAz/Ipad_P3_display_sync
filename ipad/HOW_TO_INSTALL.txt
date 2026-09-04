@@ -1,0 +1,1 @@
+Open ../iPadDisplayNative.xcodeproj in Xcode. See ../README.md for GitHub Actions and local IPA signing. Native receiver listens on USB port 55001.

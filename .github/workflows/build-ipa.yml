@@ -1,0 +1,39 @@
+name: Build native iPad IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['ipad/**', 'tests/**', 'iPadDisplayNative.xcodeproj/**', '.github/workflows/build-ipa.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Test native framebuffer bounds and snapshots
+        run: |
+          mkdir -p build
+          swiftc ipad/DisplayConfig.swift ipad/FrameStore.swift tests/main.swift -o build/FrameStoreTests
+          build/FrameStoreTests
+      - name: Build device app without account credentials
+        run: |
+          set -o pipefail
+          xcodebuild -project iPadDisplayNative.xcodeproj -scheme iPadDisplayNative -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tee build/xcodebuild.log
+      - name: Package unsigned IPA for local signing
+        run: |
+          mkdir -p build/package/Payload
+          cp -R build/DerivedData/Build/Products/Release-iphoneos/iPadDisplayNative.app build/package/Payload/
+          cd build/package
+          /usr/bin/zip -qry ../iPadDisplayNative-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iPadDisplayNative-unsigned
+          path: |
+            build/iPadDisplayNative-unsigned.ipa
+            build/xcodebuild.log
+          if-no-files-found: error
+          retention-days: 7
