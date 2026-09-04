@@ -2,7 +2,7 @@ name: Build native iPad IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, color-tag-ab-v7]
     paths: ['ipad/**', 'tests/**', 'iPadDisplayNative.xcodeproj/**', '.github/workflows/build-ipa.yml']
 permissions:
   contents: read
