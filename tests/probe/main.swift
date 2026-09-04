@@ -67,7 +67,7 @@ func ack(_ fd: Int32, _ sequence: UInt64, _ bytes: UInt64) {
 let fd = connectLocal()
 check(read(fd,32)==DisplayConfig.hello,"v6 handshake")
 let payload = Data(repeating: 91, count: 3*1024*1024+37)
-for type: UInt32 in [5,7] {
+for type in [UInt32(5), UInt32(7)] {
     let h = header(type,payload.count,UInt64(type))
     write(fd,Data(h.prefix(3))); write(fd,Data(h.dropFirst(3)))
     write(fd,Data(payload.prefix(17))); write(fd,Data(payload.dropFirst(17)))
