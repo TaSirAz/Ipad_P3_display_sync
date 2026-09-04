@@ -1,4 +1,50 @@
 import Foundation
+import Compression
+
+enum RawLossless {
+    // Matches LosslessFrame.h; blocks are independent and every frame is complete.
+    static func decode(_ payload: Data) -> Data? {
+        func u32(_ at: Int) -> UInt32 {
+            UInt32(payload[at]) | UInt32(payload[at+1]) << 8 |
+            UInt32(payload[at+2]) << 16 | UInt32(payload[at+3]) << 24
+        }
+        guard payload.count >= 16, u32(0) == 1, Int(u32(8)) == DisplayConfig.frameBytes,
+              u32(12) == 0 else { return nil }
+        let count = Int(u32(4))
+        guard count >= 1, count <= 64, payload.count >= 16 + count * 8 else { return nil }
+        var blocks: [(decoded: Int, stored: Int, raw: Bool)] = []
+        var encodedTotal = 16 + count * 8, decodedTotal = 0
+        for i in 0..<count {
+            let decoded = Int(u32(16 + i * 8)), value = u32(20 + i * 8)
+            let stored = Int(value & 0x7fff_ffff), raw = value & 0x8000_0000 != 0
+            guard decoded > 0, decoded <= DisplayConfig.frameBytes - decodedTotal,
+                  stored > 0, stored <= payload.count - encodedTotal,
+                  !raw || stored == decoded else { return nil }
+            blocks.append((decoded, stored, raw)); encodedTotal += stored; decodedTotal += decoded
+        }
+        guard encodedTotal == payload.count, decodedTotal == DisplayConfig.frameBytes else { return nil }
+        // One extra byte detects an oversized decoded block instead of accepting truncation.
+        var result = Data(count: DisplayConfig.frameBytes + 1)
+        let valid = result.withUnsafeMutableBytes { dstRaw in
+            payload.withUnsafeBytes { srcRaw in
+                let dst = dstRaw.bindMemory(to: UInt8.self).baseAddress!
+                let src = srcRaw.bindMemory(to: UInt8.self).baseAddress!
+                var from = 16 + count * 8, to = 0
+                for block in blocks {
+                    if block.raw { memcpy(dst + to, src + from, block.decoded) }
+                    else {
+                        let n = compression_decode_buffer(dst + to, block.decoded + 1,
+                                                          src + from, block.stored, nil, COMPRESSION_LZ4_RAW)
+                        if n != block.decoded { return false }
+                    }
+                    from += block.stored; to += block.decoded
+                }
+                return true
+            }
+        }
+        guard valid else { return nil }; result.removeLast(); return result
+    }
+}
 struct FrameSnapshot: Sendable {
     let data: Data
     let epoch: UInt64

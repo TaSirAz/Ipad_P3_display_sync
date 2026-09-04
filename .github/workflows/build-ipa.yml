@@ -17,7 +17,7 @@ jobs:
       - name: Test native framebuffer bounds and snapshots
         run: |
           mkdir -p build
-          swiftc ipad/DisplayConfig.swift ipad/FrameStore.swift tests/main.swift -o build/FrameStoreTests
+          swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift tests/main.swift -o build/FrameStoreTests
           build/FrameStoreTests
       - name: Build device app without account credentials
         run: |
@@ -37,3 +37,4 @@ jobs:
             build/xcodebuild.log
           if-no-files-found: error
           retention-days: 7
+

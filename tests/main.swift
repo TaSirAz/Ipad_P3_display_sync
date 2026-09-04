@@ -51,3 +51,20 @@ store.didPresent(epoch: native.epoch)
 check(store.statistics().presented == 0, "Stale presentation from old connection rejected")
 check(store.consumeFrame()?.countable == false, "Reset blank is not a received frame")
 print("PASS: full-frame RAW publication, exact bytes, duplicate/truncated rejection, presentation epoch accounting")
+let fixture = try Data(contentsOf: URL(fileURLWithPath: "tests/fixtures/bgr10a2-lz4.bin"))
+let unpacked = RawLossless.decode(fixture)!
+check(unpacked.count == DisplayConfig.frameBytes, "Lossless native frame length")
+unpacked.withUnsafeBytes { raw in
+    let words = raw.bindMemory(to: UInt32.self)
+    for i in 0..<words.count {
+        let q = UInt32(i % 1024)
+        let expected = q | (((q * 3) % 1024) << 10) | (((q * 7) % 1024) << 20) | 0xc0000000
+        check(UInt32(littleEndian: words[i]) == expected, "Windows LZ4 -> Apple exact 10-bit pixel")
+    }
+}
+check(RawLossless.decode(Data(fixture.dropLast())) == nil, "Truncated lossless frame rejected")
+var invalid = fixture; invalid[8] ^= 1
+check(RawLossless.decode(invalid) == nil, "Invalid decoded size rejected")
+invalid = fixture; invalid[20] = 0; invalid[21] = 0; invalid[22] = 0; invalid[23] = 0
+check(RawLossless.decode(invalid) == nil, "Empty compressed block rejected")
+print("PASS: Windows LZ4 -> Apple Compression, all 3870400 synthetic 10-bit pixels exact, invalid blocks rejected")
