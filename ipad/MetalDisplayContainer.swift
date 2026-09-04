@@ -170,7 +170,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
             front = next
             frontEpoch = snapshot.epoch
-            frontPending = true
+            frontPending = snapshot.countable
         }
 
         guard

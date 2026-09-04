@@ -2,6 +2,7 @@ import Foundation
 struct FrameSnapshot: Sendable {
     let data: Data
     let epoch: UInt64
+    let countable: Bool
 }
 struct RawTileUpdate: Sendable {
     let batchID: UInt64
@@ -98,6 +99,6 @@ final class FrameStore: @unchecked Sendable {
         guard committedGeneration != consumedGeneration else { return nil }
         consumedGeneration = committedGeneration
         // Data value semantics isolate later writes by copy-on-write.
-        return FrameSnapshot(data: framebuffer, epoch: epoch)
+        return FrameSnapshot(data: framebuffer, epoch: epoch, countable: receivedFrames > 0)
     }
 }

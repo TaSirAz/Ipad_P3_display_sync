@@ -40,6 +40,7 @@ store.reset()
 let full = Data(repeating: 73, count: DisplayConfig.frameBytes)
 check(store.publish(frame: full, batchID: 10), "Full frame published")
 let native = store.consumeFrame()!
+check(native.countable, "Received frame counts as presentation")
 check(native.data == full, "Full frame byte-for-byte preserved")
 check(!store.publish(frame: full, batchID: 10), "Duplicate full frame rejected")
 check(!store.publish(frame: Data(count: 4), batchID: 11), "Truncated full frame rejected")
@@ -48,4 +49,5 @@ check(store.statistics().received == 1 && store.statistics().presented == 1, "RX
 store.reset()
 store.didPresent(epoch: native.epoch)
 check(store.statistics().presented == 0, "Stale presentation from old connection rejected")
+check(store.consumeFrame()?.countable == false, "Reset blank is not a received frame")
 print("PASS: full-frame RAW publication, exact bytes, duplicate/truncated rejection, presentation epoch accounting")
