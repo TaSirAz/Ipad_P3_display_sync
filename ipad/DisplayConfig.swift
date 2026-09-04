@@ -1,4 +1,19 @@
 import Foundation
+
+enum OutputColorTag: String, CaseIterable, Identifiable {
+    case displayP3
+    case rec709
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .displayP3: return "Display P3"
+        case .rec709: return "sRGB / Rec.709"
+        }
+    }
+}
+
 enum DisplayConfig {
     static let width = 2360
     static let height = 1640
@@ -10,6 +25,7 @@ enum DisplayConfig {
     static let tileCount = ((width + tileSize - 1) / tileSize) * ((height + tileSize - 1) / tileSize)
     static let port: UInt16 = 55001
     static let magic = "IPD71RAW"
+    static let defaultOutputColorTag: OutputColorTag = .displayP3
     static var hello: Data {
         var data = Data("IPD71ACK".utf8)
         for value in [UInt32(6), UInt32(width), UInt32(height), UInt32(refreshHz), UInt32(24), UInt32(tileSize)] {

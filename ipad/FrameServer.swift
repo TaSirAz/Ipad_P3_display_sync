@@ -68,7 +68,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
             l.stateUpdateHandler = { [weak self, weak l] state in
                 guard let self, let l, self.listener === l else { return }
                 switch state {
-                case .ready: self.report("READY v6 • NATIVE 2360×1640 • USB :55001")
+                case .ready: self.report("READY v6 COLOR A/B • NATIVE 2360×1640 • USB :55001")
                 case .failed(let e): self.report("LISTENER FAILED • \(e.localizedDescription)")
                 case .waiting(let e): self.report("WAITING • \(e.localizedDescription)")
                 default: break
@@ -132,7 +132,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
         let interval = max(seconds, 0.001)
         let rx = Double(stats.received - lastReceived) / interval
         let shown = Double(stats.presented - lastPresented) / interval
-        report(String(format: "LIVE v6 • RX %.1f fps • shown %.1f fps • 10-bit P3", rx, shown))
+        report(String(format: "LIVE v6 COLOR A/B • RX %.1f fps • shown %.1f fps • 10-bit RAW", rx, shown))
         lastStatsTime = now; lastReceived = stats.received; lastPresented = stats.presented
         var data = Data("IPD71STA".utf8)
         for value in [sequence, stats.received, stats.presented] {

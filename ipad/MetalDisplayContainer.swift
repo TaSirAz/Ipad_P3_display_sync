@@ -4,6 +4,17 @@ import QuartzCore
 
 struct MetalDisplayContainer: UIViewRepresentable {
     let frameStore: FrameStore
+    let outputColorTag: OutputColorTag
+
+    private func applyColorTag(to view: MTKView) {
+        guard let layer = view.layer as? CAMetalLayer else { return }
+        switch outputColorTag {
+        case .displayP3:
+            layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
+        case .rec709:
+            layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        }
+    }
 
     func makeCoordinator() -> Renderer {
         Renderer(store: frameStore)
@@ -19,15 +30,18 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
         if let layer = view.layer as? CAMetalLayer {
             layer.pixelFormat = .bgr10a2Unorm
-            layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
             layer.maximumDrawableCount = 2
         }
+        applyColorTag(to: view)
 
         view.delegate = context.coordinator
         return view
     }
 
-    func updateUIView(_ uiView: MTKView, context: Context) {}
+    func updateUIView(_ uiView: MTKView, context: Context) {
+        applyColorTag(to: uiView)
+        uiView.setNeedsDisplay()
+    }
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
