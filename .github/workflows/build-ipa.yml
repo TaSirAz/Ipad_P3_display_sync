@@ -19,6 +19,10 @@ jobs:
           mkdir -p build
           swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift tests/main.swift -o build/FrameStoreTests
           build/FrameStoreTests
+      - name: Test receive-only benchmark over local TCP
+        run: |
+          swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift ipad/FrameServer.swift tests/probe/main.swift -o build/ProbeTests
+          build/ProbeTests
       - name: Build device app without account credentials
         run: |
           set -o pipefail
