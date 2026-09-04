@@ -54,12 +54,14 @@ print("PASS: full-frame RAW publication, exact bytes, duplicate/truncated reject
 let fixture = try Data(contentsOf: URL(fileURLWithPath: "tests/fixtures/bgr10a2-lz4.bin"))
 let unpacked = RawLossless.decode(fixture)!
 check(unpacked.count == DisplayConfig.frameBytes, "Lossless native frame length")
-unpacked.withUnsafeBytes { raw in
-    let words = raw.bindMemory(to: UInt32.self)
-    for i in 0..<words.count {
+unpacked.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Void in
+    for i in 0..<(raw.count / 4) {
         let q = UInt32(i % 1024)
-        let expected = q | (((q * 3) % 1024) << 10) | (((q * 7) % 1024) << 20) | 0xc0000000
-        check(UInt32(littleEndian: words[i]) == expected, "Windows LZ4 -> Apple exact 10-bit pixel")
+        let green: UInt32 = ((q * 3) % 1024) << 10
+        let red: UInt32 = ((q * 7) % 1024) << 20
+        let expected: UInt32 = q | green | red | UInt32(0xc0000000)
+        let word = raw.loadUnaligned(fromByteOffset: i * 4, as: UInt32.self)
+        check(UInt32(littleEndian: word) == expected, "Windows LZ4 -> Apple exact 10-bit pixel")
     }
 }
 check(RawLossless.decode(Data(fixture.dropLast())) == nil, "Truncated lossless frame rejected")
