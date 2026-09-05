@@ -80,6 +80,22 @@ final class FrameStore: @unchecked Sendable {
     private var pendingReceiveStartNs: UInt64 = 0
     private var events: [(UInt64, UInt64, UInt64)] = []
     private var lostEvents: UInt64 = 0
+    // Read the committed buffer under the same lock, without consuming a frame.
+    func referenceReadings(codes: [[UInt32]]) -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard receivedFrames > 0 else { return "尚未收到影格；請啟動 Windows 測試圖與串流" }
+        var lines = [String]()
+        for i in 0..<codes.count {
+            let x = (i % 3) * DisplayConfig.width / 3 + DisplayConfig.width / 12
+            let y = (i / 3) * DisplayConfig.height / 4 + DisplayConfig.height / 8
+            let offset = (y * DisplayConfig.width + x) * 4
+            let v = framebuffer.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self) }.littleEndian
+            let rgb = [Int((v >> 20) & 1023), Int((v >> 10) & 1023), Int(v & 1023)]
+            let delta = (0..<3).map { rgb[$0] - Int(codes[i][$0]) }
+            lines.append("\(i+1): \(rgb) Δ\(delta)")
+        }
+        return lines.joined(separator: "  |  ")
+    }
     func currentEpoch() -> UInt64 { lock.lock(); defer { lock.unlock() }; return epoch }
     @discardableResult func beginTiming(sequence: UInt64, now: UInt64, expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }

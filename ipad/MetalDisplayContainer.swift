@@ -347,6 +347,7 @@ private final class ColorReferenceModel: ObservableObject {
 // Do not rasterize this comparison with drawingGroup/compositingGroup.
 private struct PairedReferenceCell: View {
     let index: Int
+    var leftLabel: String = "Metal"
     private var nativeColor: Color {
         let q = ColorReferencePattern.codes[index]
         return Color(.displayP3, red: Double(q[0]) / 1023,
@@ -359,7 +360,7 @@ private struct PairedReferenceCell: View {
                 nativeColor
             }
             HStack(spacing: 0) {
-                Text("Metal").frame(maxWidth: .infinity)
+                Text(leftLabel).frame(maxWidth: .infinity)
                 Text("原生 P3").frame(maxWidth: .infinity)
             }
             .font(.system(size: 11, weight: .semibold))
@@ -374,6 +375,7 @@ private struct PairedReferenceCell: View {
 private struct PairedColorReference: View {
     let store: FrameStore
     let tag: OutputColorTag
+    var leftLabel: String = "Metal"
     var body: some View {
         MetalDisplayContainer(frameStore: store, outputColorTag: tag)
             .overlay {
@@ -385,7 +387,7 @@ private struct PairedColorReference: View {
                     ForEach(0..<ColorReferencePattern.codes.count, id: \.self) { index in
                         let column = CGFloat(index % ColorReferencePattern.columns)
                         let row = CGFloat(index / ColorReferencePattern.columns)
-                        PairedReferenceCell(index: index)
+                        PairedReferenceCell(index: index, leftLabel: leftLabel)
                             .frame(width: cellWidth, height: cellHeight)
                             .position(x: (column + 0.5) * cellWidth, y: (row + 0.5) * cellHeight)
                     }
@@ -421,5 +423,34 @@ struct ColorReferenceView: View {
         .background(Color.black)
         .foregroundStyle(.white)
         .task { reference.check() }
+    }
+}
+
+struct StreamColorReferenceView: View {
+    let store: FrameStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var readings = "等待讀取串流色塊"
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Windows 串流 / 原生 P3 • 7.4 (12)").font(.headline)
+                Spacer()
+                Button("完成") { dismiss() }
+            }
+            Text("先啟動 Windows 成對測試圖。每組左邊是實際串流，右邊是原生 P3；比較中央接縫。")
+                .font(.footnote)
+            PairedColorReference(store: store, tag: .displayP3, leftLabel: "Windows 串流")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text(readings).font(.system(size: 11, design: .monospaced))
+            Text("讀值為接收的 10-bit RGB；目標差異不等於面板量測。固定使用 P3，無影格時請確認 USB 連線。")
+                .font(.footnote)
+        }
+        .padding(16).background(Color.black).foregroundStyle(.white)
+        .task {
+            while !Task.isCancelled {
+                readings = store.referenceReadings(codes: ColorReferencePattern.codes)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
     }
 }

@@ -7,15 +7,18 @@ struct ContentView: View {
     @State private var outputColorTag = DisplayConfig.defaultOutputColorTag
 
     @State private var showColorReference = false
+    @State private var showStreamReference = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            if !showStreamReference {
             MetalDisplayContainer(frameStore: server.frameStore, outputColorTag: outputColorTag)
                 .background(Color.black)
                 .ignoresSafeArea()
+            }
 
             if showStatus { VStack(alignment: .leading, spacing: 6) {
-                Text("COLOR CHECK 7.4 (11) • 2360×1640 • 10-bit")
+                Text("COLOR CHECK 7.4 (12) • 2360×1640 • 10-bit")
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
 
                 Text(server.status)
@@ -31,6 +34,9 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 420)
+
+                Button("Windows 串流 / 原生 P3 比較") { showStreamReference = true }
+                    .buttonStyle(.borderedProminent)
 
                 Button("Check Metal against native P3") { showColorReference = true }
                     .buttonStyle(.borderedProminent)
@@ -50,6 +56,7 @@ struct ContentView: View {
         .onTapGesture { showStatus.toggle() }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .sheet(isPresented: $showStreamReference) { StreamColorReferenceView(store: server.frameStore) }
         .sheet(isPresented: $showColorReference) { ColorReferenceView() }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
