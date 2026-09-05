@@ -301,6 +301,8 @@ extension Renderer {
 }
 
 private enum ColorReferencePattern {
+    static let columns = 3
+    static let rows = 4
     // All reference channels use precisely the same q/1023 values as Metal.
     static let codes: [[UInt32]] = [
         [1023, 0, 0], [0, 1023, 0], [0, 0, 1023], [1023, 307, 0], [1023, 0, 614], [0, 819, 716],
@@ -320,11 +322,11 @@ private enum ColorReferencePattern {
             packedCodes.append(rgb | UInt32(0xc0000000))
         }
         for y in 0..<height {
-            let patchRow: Int = y * 2 / height
+            let patchRow: Int = y * rows / height
             let rowStart: Int = y * width
             for x in 0..<width {
-                let patchColumn: Int = x * 6 / width
-                let patchIndex: Int = patchRow * 6 + patchColumn
+                let patchColumn: Int = x * columns / width
+                let patchIndex: Int = patchRow * columns + patchColumn
                 words[rowStart + x] = packedCodes[patchIndex]
             }
         }
@@ -340,48 +342,82 @@ private final class ColorReferenceModel: ObservableObject {
     func check() { gpuResult = Renderer(store: store).verifyTenBitShader() }
 }
 
+// Keep one production Metal surface. An opaque native-P3 rectangle covers only
+// the right half of each source patch; the two paths meet at the same boundary.
+// Do not rasterize this comparison with drawingGroup/compositingGroup.
+private struct PairedReferenceCell: View {
+    let index: Int
+    private var nativeColor: Color {
+        let q = ColorReferencePattern.codes[index]
+        return Color(.displayP3, red: Double(q[0]) / 1023,
+                     green: Double(q[1]) / 1023, blue: Double(q[2]) / 1023, opacity: 1)
+    }
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 0) {
+                Color.clear
+                nativeColor
+            }
+            HStack(spacing: 0) {
+                Text("Metal").frame(maxWidth: .infinity)
+                Text("原生 P3").frame(maxWidth: .infinity)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.vertical, 3)
+            .background(Color.black.opacity(0.75))
+            .foregroundStyle(.white)
+            Rectangle().strokeBorder(Color.black, lineWidth: 2)
+        }
+    }
+}
+
+private struct PairedColorReference: View {
+    let store: FrameStore
+    let tag: OutputColorTag
+    var body: some View {
+        MetalDisplayContainer(frameStore: store, outputColorTag: tag)
+            .overlay {
+                GeometryReader { geometry in
+                    let columns = CGFloat(ColorReferencePattern.columns)
+                    let rows = CGFloat(ColorReferencePattern.rows)
+                    let cellWidth = geometry.size.width / columns
+                    let cellHeight = geometry.size.height / rows
+                    ForEach(0..<ColorReferencePattern.codes.count, id: \.self) { index in
+                        let column = CGFloat(index % ColorReferencePattern.columns)
+                        let row = CGFloat(index / ColorReferencePattern.columns)
+                        PairedReferenceCell(index: index)
+                            .frame(width: cellWidth, height: cellHeight)
+                            .position(x: (column + 0.5) * cellWidth, y: (row + 0.5) * cellHeight)
+                    }
+                }
+            }
+            .aspectRatio(CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height), contentMode: .fit)
+    }
+}
+
 struct ColorReferenceView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var reference = ColorReferenceModel()
     @State private var tag = OutputColorTag.displayP3
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 12) {
             HStack {
-                Text("Color reference • 7.4 (10)").font(.headline)
+                Text("成對色彩比較 • 7.4 (11)").font(.headline)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("完成") { dismiss() }
             }
-            Text("Compare matching patches. This bypasses Windows and USB.")
+            Text("每組左邊 Metal、右邊原生 P3；同色緊貼，看中央接縫是否有色差。")
+                .font(.subheadline)
             Picker("Metal output", selection: $tag) {
                 ForEach(OutputColorTag.allCases) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented)
-            HStack(alignment: .top, spacing: 16) {
-                VStack {
-                    Text("Metal • BGR10A2 • \(tag.title)")
-                    MetalDisplayContainer(frameStore: reference.store, outputColorTag: tag)
-                        .aspectRatio(CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height), contentMode: .fit)
-                }
-                VStack {
-                    Text("Native Apple Display P3 reference")
-                    VStack(spacing: 0) {
-                        ForEach(0..<2) { row in
-                            HStack(spacing: 0) {
-                                ForEach(0..<6) { col in
-                                    let q = ColorReferencePattern.codes[row * 6 + col]
-                                    Color(.displayP3, red: Double(q[0]) / 1023,
-                                          green: Double(q[1]) / 1023, blue: Double(q[2]) / 1023, opacity: 1)
-                                }
-                            }
-                        }
-                    }.aspectRatio(CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height), contentMode: .fit)
-                }
-            }
-            Text(reference.gpuResult).font(.system(.body, design: .monospaced))
-            Text("GPU PASS verifies shader pixels only. Matching the native reference verifies the display path visually.")
+            PairedColorReference(store: reference.store, tag: tag)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text(reference.gpuResult).font(.system(.footnote, design: .monospaced))
+            Text("此比較不經過 Windows 或 USB。GPU PASS 僅驗證像素，色差請比較每組左右兩半。")
                 .font(.footnote)
-            Spacer()
         }
-        .padding(24)
+        .padding(20)
         .background(Color.black)
         .foregroundStyle(.white)
         .task { reference.check() }

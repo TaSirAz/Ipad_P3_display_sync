@@ -15,7 +15,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             if showStatus { VStack(alignment: .leading, spacing: 6) {
-                Text("COLOR CHECK 7.4 (10) • 2360×1640 • 10-bit")
+                Text("COLOR CHECK 7.4 (11) • 2360×1640 • 10-bit")
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
 
                 Text(server.status)
