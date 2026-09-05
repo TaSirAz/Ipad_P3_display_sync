@@ -6,6 +6,8 @@ struct ContentView: View {
     @State private var showStatus = true
     @State private var outputColorTag = DisplayConfig.defaultOutputColorTag
 
+    @State private var showColorReference = false
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             MetalDisplayContainer(frameStore: server.frameStore, outputColorTag: outputColorTag)
@@ -13,7 +15,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             if showStatus { VStack(alignment: .leading, spacing: 6) {
-                Text("V7.1 • TRUE DISPLAY 2 • 2360×1640@60")
+                Text("COLOR CHECK 7.4 (10) • 2360×1640 • 10-bit")
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
 
                 Text(server.status)
@@ -24,11 +26,14 @@ struct ContentView: View {
 
                 Picker("Output color tag", selection: $outputColorTag) {
                     ForEach(OutputColorTag.allCases) { tag in
-                        Text(tag == .displayP3 ? "P3 TAG" : "709 TAG").tag(tag)
+                        Text(tag.title).tag(tag)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 280)
+                .frame(width: 420)
+
+                Button("Check Metal against native P3") { showColorReference = true }
+                    .buttonStyle(.borderedProminent)
 
                 Button("Restart USB Listener") {
                     server.restart()
@@ -45,6 +50,7 @@ struct ContentView: View {
         .onTapGesture { showStatus.toggle() }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .sheet(isPresented: $showColorReference) { ColorReferenceView() }
         .task {
             UIApplication.shared.isIdleTimerDisabled = true
             server.start()

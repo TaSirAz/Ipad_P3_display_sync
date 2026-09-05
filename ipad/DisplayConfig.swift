@@ -3,13 +3,15 @@ import Foundation
 enum OutputColorTag: String, CaseIterable, Identifiable {
     case displayP3
     case rec709
+    case legacyP3
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .displayP3: return "Display P3"
-        case .rec709: return "sRGB / Rec.709"
+        case .displayP3: return "P3 managed"
+        case .rec709: return "709 managed"
+        case .legacyP3: return "P3 legacy"
         }
     }
 }

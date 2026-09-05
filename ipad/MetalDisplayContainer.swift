@@ -8,8 +8,10 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
     private func applyColorTag(to view: MTKView) {
         guard let layer = view.layer as? CAMetalLayer else { return }
+        // Explicit compositor color management; SDR samples stay in [0,1].
+        layer.wantsExtendedDynamicRangeContent = outputColorTag != .legacyP3
         switch outputColorTag {
-        case .displayP3:
+        case .displayP3, .legacyP3:
             layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
         case .rec709:
             layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
@@ -40,7 +42,9 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
     func updateUIView(_ uiView: MTKView, context: Context) {
         applyColorTag(to: uiView)
-        uiView.setNeedsDisplay()
+        // Timed MTKView ignores setNeedsDisplay when enableSetNeedsDisplay is false.
+        // Static frames must also invalidate the renderer, not only layer metadata.
+        context.coordinator.requestRedraw()
     }
 }
 
@@ -165,6 +169,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { needsRedraw = true }
 
+    func requestRedraw() { needsRedraw = true }
+
     func draw(in view: MTKView) {
         guard gpuAvailable.wait(timeout: .now()) == .success else { return }
         var submitted = false
@@ -247,5 +253,122 @@ final class Renderer: NSObject, MTKViewDelegate {
         submitted = true
         cb.commit()
         needsRedraw = false
+    }
+}
+
+// Runs the production fragment shader into a 10-bit target, then checks the stored
+// bytes. This tests GPU packing and sampling, not the physical panel/compositor.
+extension Renderer {
+    func verifyTenBitShader() -> String {
+        let width = 1024
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgr10a2Unorm,
+                                                         width: width, height: 1, mipmapped: false)
+        d.storageMode = .shared; d.usage = [.shaderRead, .renderTarget]
+        guard let input = device.makeTexture(descriptor: d),
+              let output = device.makeTexture(descriptor: d),
+              let command = queue.makeCommandBuffer() else { return "GPU CHECK FAILED: allocation" }
+        let expected: [UInt32] = (0..<width).map { i in
+            UInt32(1023 - i) | (UInt32((i * 37) & 1023) << 10) | (UInt32(i) << 20) | 0xc0000000
+        }
+        expected.withUnsafeBytes { raw in
+            input.replace(region: MTLRegionMake2D(0, 0, width, 1), mipmapLevel: 0,
+                          withBytes: raw.baseAddress!, bytesPerRow: width * 4)
+        }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = output
+        pass.colorAttachments[0].loadAction = .dontCare
+        pass.colorAttachments[0].storeAction = .store
+        guard let enc = command.makeRenderCommandEncoder(descriptor: pass) else { return "GPU CHECK FAILED: encoder" }
+        var scale = SIMD2<Float>(1, 1)
+        enc.setRenderPipelineState(pipeline)
+        enc.setVertexBytes(&scale, length: MemoryLayout<SIMD2<Float>>.stride, index: 0)
+        enc.setFragmentTexture(input, index: 0)
+        enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        enc.endEncoding(); command.commit(); command.waitUntilCompleted()
+        guard command.status == .completed else { return "GPU CHECK FAILED: execution" }
+        var actual = [UInt32](repeating: 0, count: width)
+        actual.withUnsafeMutableBytes { raw in
+            output.getBytes(raw.baseAddress!, bytesPerRow: width * 4,
+                            from: MTLRegionMake2D(0, 0, width, 1), mipmapLevel: 0)
+        }
+        let errors = zip(actual, expected).filter { $0 != $1 }.count
+        return errors == 0 ? "GPU PASS: all 1024 RGB levels preserved exactly" : "GPU FAIL: \(errors)/1024 packed pixels differ"
+    }
+}
+
+private enum ColorReferencePattern {
+    // All reference channels use precisely the same q/1023 values as Metal.
+    static let codes: [[UInt32]] = [
+        [1023, 0, 0], [0, 1023, 0], [0, 0, 1023], [1023, 307, 0], [1023, 0, 614], [0, 819, 716],
+        [0, 0, 0], [41, 41, 41], [188, 188, 188], [512, 512, 512], [768, 768, 768], [1023, 1023, 1023]
+    ]
+    static func makeStore() -> FrameStore {
+        let store = FrameStore()
+        var data = Data(count: DisplayConfig.frameBytes)
+        data.withUnsafeMutableBytes { raw in
+            let pixels = raw.bindMemory(to: UInt32.self)
+            for y in 0..<DisplayConfig.height {
+                for x in 0..<DisplayConfig.width {
+                    let q = codes[min(1, y * 2 / DisplayConfig.height) * 6 + min(5, x * 6 / DisplayConfig.width)]
+                    pixels[y * DisplayConfig.width + x] = q[2] | (q[1] << 10) | (q[0] << 20) | 0xc0000000
+                }
+            }
+        }
+        _ = store.publish(frame: data, batchID: 1)
+        return store
+    }
+}
+
+private final class ColorReferenceModel: ObservableObject {
+    let store = ColorReferencePattern.makeStore()
+    @Published var gpuResult = "GPU check pending"
+    func check() { gpuResult = Renderer(store: store).verifyTenBitShader() }
+}
+
+struct ColorReferenceView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var reference = ColorReferenceModel()
+    @State private var tag = OutputColorTag.displayP3
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack {
+                Text("Color reference • 7.4 (10)").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            Text("Compare matching patches. This bypasses Windows and USB.")
+            Picker("Metal output", selection: $tag) {
+                ForEach(OutputColorTag.allCases) { Text($0.title).tag($0) }
+            }.pickerStyle(.segmented)
+            HStack(alignment: .top, spacing: 16) {
+                VStack {
+                    Text("Metal • BGR10A2 • \(tag.title)")
+                    MetalDisplayContainer(frameStore: reference.store, outputColorTag: tag)
+                        .aspectRatio(CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height), contentMode: .fit)
+                }
+                VStack {
+                    Text("Native Apple Display P3 reference")
+                    VStack(spacing: 0) {
+                        ForEach(0..<2) { row in
+                            HStack(spacing: 0) {
+                                ForEach(0..<6) { col in
+                                    let q = ColorReferencePattern.codes[row * 6 + col]
+                                    Color(.displayP3, red: Double(q[0]) / 1023,
+                                          green: Double(q[1]) / 1023, blue: Double(q[2]) / 1023, opacity: 1)
+                                }
+                            }
+                        }
+                    }.aspectRatio(CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height), contentMode: .fit)
+                }
+            }
+            Text(reference.gpuResult).font(.system(.body, design: .monospaced))
+            Text("GPU PASS verifies shader pixels only. Matching the native reference verifies the display path visually.")
+                .font(.footnote)
+            Spacer()
+        }
+        .padding(24)
+        .background(Color.black)
+        .foregroundStyle(.white)
+        .task { reference.check() }
     }
 }
