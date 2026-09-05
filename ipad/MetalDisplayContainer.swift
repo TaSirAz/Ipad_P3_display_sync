@@ -267,8 +267,12 @@ extension Renderer {
         guard let input = device.makeTexture(descriptor: d),
               let output = device.makeTexture(descriptor: d),
               let command = queue.makeCommandBuffer() else { return "GPU CHECK FAILED: allocation" }
-        let expected: [UInt32] = (0..<width).map { i in
-            UInt32(1023 - i) | (UInt32((i * 37) & 1023) << 10) | (UInt32(i) << 20) | 0xc0000000
+        var expected = [UInt32](repeating: 0, count: width)
+        for i in 0..<width {
+            let blue = UInt32(1023 - i)
+            let green = UInt32((i * 37) & 1023) << 10
+            let red = UInt32(i) << 20
+            expected[i] = blue | green | red | UInt32(0xc0000000)
         }
         expected.withUnsafeBytes { raw in
             input.replace(region: MTLRegionMake2D(0, 0, width, 1), mipmapLevel: 0,
@@ -305,12 +309,16 @@ private enum ColorReferencePattern {
     static func makeStore() -> FrameStore {
         let store = FrameStore()
         var data = Data(count: DisplayConfig.frameBytes)
-        data.withUnsafeMutableBytes { raw in
+        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) -> Void in
             let pixels = raw.bindMemory(to: UInt32.self)
             for y in 0..<DisplayConfig.height {
                 for x in 0..<DisplayConfig.width {
                     let q = codes[min(1, y * 2 / DisplayConfig.height) * 6 + min(5, x * 6 / DisplayConfig.width)]
-                    pixels[y * DisplayConfig.width + x] = q[2] | (q[1] << 10) | (q[0] << 20) | 0xc0000000
+                    let blue: UInt32 = q[2]
+                    let green: UInt32 = q[1] << 10
+                    let red: UInt32 = q[0] << 20
+                    let packed: UInt32 = blue | green | red | UInt32(0xc0000000)
+                    pixels[y * DisplayConfig.width + x] = packed
                 }
             }
         }
