@@ -308,20 +308,27 @@ private enum ColorReferencePattern {
     ]
     static func makeStore() -> FrameStore {
         let store = FrameStore()
-        var data = Data(count: DisplayConfig.frameBytes)
-        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) -> Void in
-            let pixels = raw.bindMemory(to: UInt32.self)
-            for y in 0..<DisplayConfig.height {
-                for x in 0..<DisplayConfig.width {
-                    let q = codes[min(1, y * 2 / DisplayConfig.height) * 6 + min(5, x * 6 / DisplayConfig.width)]
-                    let blue: UInt32 = q[2]
-                    let green: UInt32 = q[1] << 10
-                    let red: UInt32 = q[0] << 20
-                    let packed: UInt32 = blue | green | red | UInt32(0xc0000000)
-                    pixels[y * DisplayConfig.width + x] = packed
-                }
+        let width: Int = DisplayConfig.width
+        let height: Int = DisplayConfig.height
+        var words = [UInt32](repeating: 0, count: width * height)
+        var packedCodes = [UInt32]()
+        for code in codes {
+            let blue: UInt32 = code[2]
+            let green: UInt32 = code[1] << 10
+            let red: UInt32 = code[0] << 20
+            let rgb: UInt32 = blue | green | red
+            packedCodes.append(rgb | UInt32(0xc0000000))
+        }
+        for y in 0..<height {
+            let patchRow: Int = y * 2 / height
+            let rowStart: Int = y * width
+            for x in 0..<width {
+                let patchColumn: Int = x * 6 / width
+                let patchIndex: Int = patchRow * 6 + patchColumn
+                words[rowStart + x] = packedCodes[patchIndex]
             }
         }
+        let data: Data = words.withUnsafeBytes { raw in Data(raw) }
         _ = store.publish(frame: data, batchID: 1)
         return store
     }
