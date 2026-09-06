@@ -6,6 +6,7 @@ struct ContentView: View {
     init(frameStore: FrameStore) {
         self.store = frameStore
     }
+    @State private var verification = "Reference verification pending"
     @State private var paired = false
     @State private var swapped = false
 
@@ -26,6 +27,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            Text(verification).font(.caption)
             HStack {
                 Text("Windows 串流 / 原生 P3")
                     .font(.headline)
@@ -57,6 +59,9 @@ struct ContentView: View {
             )
         }
         .padding()
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FP16Verification"))) { notification in
+            if let message = notification.object as? String { verification = message }
+        }
     }
 
     private var comparisonGrid: some View {

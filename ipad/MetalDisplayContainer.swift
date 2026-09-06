@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import MetalKit
 import QuartzCore
@@ -51,6 +52,7 @@ struct MetalDisplayContainer: UIViewRepresentable {
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
+    private var verifiedEpoch: UInt64?
     var paired: Bool
     private let store: FrameStore
     private let device: MTLDevice
@@ -202,6 +204,22 @@ final class Renderer: NSObject, MTKViewDelegate {
                         withBytes: p,
                         bytesPerRow: DisplayConfig.rowBytes
                     )
+                }
+            }
+
+            if snapshot.countable && verifiedEpoch != snapshot.epoch {
+                verifiedEpoch = snapshot.epoch
+                var readback = Data(count: frame.count)
+                readback.withUnsafeMutableBytes { raw in
+                    textures[next].getBytes(raw.baseAddress!, bytesPerRow: DisplayConfig.rowBytes,
+                        from: MTLRegionMake2D(0, 0, DisplayConfig.width, DisplayConfig.height), mipmapLevel: 0)
+                }
+                let digest = SHA256.hash(data: readback).map { String(format: "%02x", $0) }.joined()
+                let exact = readback == frame
+                let reference = digest == "68f45d20581959b76b0d8922e25ad5efd14408ac4f93f452b6cbeec5a30cb1ff"
+                let message = reference && exact ? "PASS: exact FP16 reference reached Metal texture" : (exact ? "Upload exact; current frame is not the reference" : "FAIL: texture differs from received bytes")
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: Notification.Name("FP16Verification"), object: message)
                 }
             }
 
