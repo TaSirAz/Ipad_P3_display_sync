@@ -41,7 +41,7 @@ struct ContentView: View {
 
             MetalDisplayContainer(
                 frameStore: store,
-                outputColorTag: .p3
+                outputColorTag: .displayP3
             )
             .overlay {
                 if paired {
