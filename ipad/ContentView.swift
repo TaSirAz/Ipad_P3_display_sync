@@ -9,20 +9,17 @@ struct ContentView: View {
     @State private var paired = false
     @State private var swapped = false
 
-    private let colors: [[Double]] = [
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-        [1, 0.3, 0],
-        [1, 0, 0.6],
-        [0, 0.8, 0.7],
-        [0, 0, 0],
-        [0.18, 0.18, 0.18],
-        [0.5, 0.5, 0.5],
-        [0.75, 0.75, 0.75],
-        [1, 1, 1],
-        [0.16, 0.02, 0.7]
-    ]
+   private let colors: [[Double]] = [
+       [1, 0, 0],       // 紅
+       [0, 1, 0],       // 綠
+       [0, 0, 1],       // 藍
+       [1, 0.3, 0],     // 橙
+       [1, 0, 0.6],     // 洋紅
+       [0, 0.8, 0.7],   // 青綠
+       [0, 0, 0],       // 黑
+       [0.5, 0.5, 0.5], // 灰
+       [1, 1, 1]        // 白
+   ]
 
     var body: some View {
         VStack(spacing: 12) {
