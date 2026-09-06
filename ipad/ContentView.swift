@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct ContentView: View {
-    private let store = FrameStore()
+    private let store: FrameStore
+
+    init(frameStore: FrameStore) {
+        self.store = frameStore
+    }
     @State private var paired = false
     @State private var swapped = false
 
