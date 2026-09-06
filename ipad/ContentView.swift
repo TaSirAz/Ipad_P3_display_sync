@@ -24,7 +24,7 @@ struct ContentView: View {
                                         ZStack(alignment: .bottom) {
                                             HStack(spacing: 0) {
                                                 if !swapped { Color.clear }
-                                                Color(.displayP3, red:c[0], green:c[1], blue:c[2], opacity:1)
+                                                Color(displayP3Red: c[0], green: c[1], blue: c[2], opacity: 1)
                                                 if swapped { Color.clear }
                                             }
                                             HStack {
