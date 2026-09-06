@@ -9,12 +9,12 @@ struct MetalDisplayContainer: UIViewRepresentable {
     private func applyColorTag(to view: MTKView) {
         guard let layer = view.layer as? CAMetalLayer else { return }
         // Explicit compositor color management; SDR samples stay in [0,1].
-        layer.wantsExtendedDynamicRangeContent = outputColorTag != .legacyP3
+        layer.wantsExtendedDynamicRangeContent = true
         switch outputColorTag {
         case .displayP3, .legacyP3:
-            layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
+            layer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
         case .rec709:
-            layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+            layer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
         }
     }
 
@@ -24,14 +24,14 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
-        view.colorPixelFormat = .bgr10a2Unorm
+        view.colorPixelFormat = .rgba16Float
         view.preferredFramesPerSecond = DisplayConfig.refreshHz
         view.enableSetNeedsDisplay = false
         view.isPaused = false
         view.framebufferOnly = true
 
         if let layer = view.layer as? CAMetalLayer {
-            layer.pixelFormat = .bgr10a2Unorm
+            layer.pixelFormat = .rgba16Float
             layer.maximumDrawableCount = 2
         }
         applyColorTag(to: view)
@@ -76,7 +76,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         func makeTexture(device: MTLDevice) -> MTLTexture {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .bgr10a2Unorm,
+                pixelFormat: .rgba16Float,
                 width: DisplayConfig.width,
                 height: DisplayConfig.height,
                 mipmapped: false
@@ -146,7 +146,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let pipelineDescriptor = MTLRenderPipelineDescriptor()
         pipelineDescriptor.vertexFunction = library.makeFunction(name: "vs")
         pipelineDescriptor.fragmentFunction = library.makeFunction(name: "fs")
-        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgr10a2Unorm
+        pipelineDescriptor.colorAttachments[0].pixelFormat = .rgba16Float
 
         let renderPipeline: MTLRenderPipelineState
         do {
@@ -188,7 +188,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                         region: MTLRegionMake2D(0,0,DisplayConfig.width,DisplayConfig.height),
                         mipmapLevel: 0,
                         withBytes: p,
-                        bytesPerRow: DisplayConfig.width*4
+                        bytesPerRow: DisplayConfig.rowBytes
                     )
                 }
             }
@@ -261,7 +261,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 extension Renderer {
     func verifyTenBitShader() -> String {
         let width = 1024
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgr10a2Unorm,
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
                                                          width: width, height: 1, mipmapped: false)
         d.storageMode = .shared; d.usage = [.shaderRead, .renderTarget]
         guard let input = device.makeTexture(descriptor: d),

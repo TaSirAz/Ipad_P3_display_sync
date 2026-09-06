@@ -68,7 +68,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
             l.stateUpdateHandler = { [weak self, weak l] state in
                 guard let self, let l, self.listener === l else { return }
                 switch state {
-                case .ready: self.report("READY v6 COLOR CHECK 7.4 • NATIVE 2360×1640 • USB :55001")
+                case .ready: self.report("READY v16 FP16 TEST • NATIVE 2360×1640 • USB :55002")
                 case .failed(let e): self.report("LISTENER FAILED • \(e.localizedDescription)")
                 case .waiting(let e): self.report("WAITING • \(e.localizedDescription)")
                 default: break
@@ -132,7 +132,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
         let interval = max(seconds, 0.001)
         let rx = Double(stats.received - lastReceived) / interval
         let shown = Double(stats.presented - lastPresented) / interval
-        report(String(format: "LIVE v6 COLOR CHECK 7.4 • RX %.1f fps • shown %.1f fps • 10-bit lossless", rx, shown))
+        report(String(format: "LIVE v16 FP16 TEST • RX %.1f fps • shown %.1f fps • FP16 linear scRGB RAW", rx, shown))
         lastStatsTime = now; lastReceived = stats.received; lastPresented = stats.presented
         var data = Data("IPD71STA".utf8)
         for value in [sequence, stats.received, stats.presented] {
@@ -215,7 +215,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                 self.timingBatch = sequence; self.readNs = 0; self.appendNs = 0; self.callbacks = 0
                 self.batchStartNs = DispatchTime.now().uptimeNanoseconds
             }
-            if TransferProbe.accepts(type: type, size: payloadSize) {
+            if type != 3 { self.fail(c, "FP16 requires full RAW packet type 3"); return }; if TransferProbe.accepts(type: type, size: payloadSize) {
                 self.probe.begin(now: DispatchTime.now().uptimeNanoseconds)
                 if self.probeMode != type {
                     self.probeMode = type

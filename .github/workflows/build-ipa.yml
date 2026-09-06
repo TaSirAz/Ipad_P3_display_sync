@@ -1,9 +1,8 @@
-name: Build native iPad IPA
+name: Build isolated FP16 iPad IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, color-tag-ab-v7]
-    paths: ['ipad/**', 'tests/**', 'iPadDisplayNative.xcodeproj/**', '.github/workflows/build-ipa.yml']
+    branches: [fp16-direct-test]
 permissions:
   contents: read
 jobs:
@@ -12,33 +11,23 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Show Xcode version
-        run: xcodebuild -version
-      - name: Test native framebuffer bounds and snapshots
+      - name: Verify FP16 storage
         run: |
           mkdir -p build
-          swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift tests/main.swift -o build/FrameStoreTests
-          build/FrameStoreTests
-      - name: Test receive-only benchmark over local TCP
-        run: |
-          swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift ipad/FrameServer.swift tests/probe/main.swift -o build/ProbeTests
-          build/ProbeTests
-      - name: Build device app without account credentials
+          cp tests/fp16.swift build/main.swift
+          swiftc -O ipad/DisplayConfig.swift ipad/FrameStore.swift build/main.swift -o build/FP16Tests
+          build/FP16Tests
+      - name: Build
         run: |
           set -o pipefail
           xcodebuild -project iPadDisplayNative.xcodeproj -scheme iPadDisplayNative -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tee build/xcodebuild.log
-      - name: Package unsigned IPA for local signing
+      - name: Package
         run: |
           mkdir -p build/package/Payload
           cp -R build/DerivedData/Build/Products/Release-iphoneos/iPadDisplayNative.app build/package/Payload/
           cd build/package
-          /usr/bin/zip -qry ../iPadDisplayNative-unsigned.ipa Payload
+          zip -qry ../iPadDisplayFP16-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: iPadDisplayNative-unsigned
-          path: |
-            build/iPadDisplayNative-unsigned.ipa
-            build/xcodebuild.log
-          if-no-files-found: error
-          retention-days: 7
-
+          name: iPadDisplayFP16-unsigned
+          path: build/iPadDisplayFP16-unsigned.ipa
