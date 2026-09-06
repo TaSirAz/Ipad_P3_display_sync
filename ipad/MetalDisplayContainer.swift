@@ -5,6 +5,7 @@ import QuartzCore
 struct MetalDisplayContainer: UIViewRepresentable {
     let frameStore: FrameStore
     let outputColorTag: OutputColorTag
+    var paired = false
 
     private func applyColorTag(to view: MTKView) {
         guard let layer = view.layer as? CAMetalLayer else { return }
@@ -19,7 +20,7 @@ struct MetalDisplayContainer: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Renderer {
-        Renderer(store: frameStore)
+        Renderer(store: frameStore, paired: paired)
     }
 
     func makeUIView(context: Context) -> MTKView {
@@ -44,11 +45,13 @@ struct MetalDisplayContainer: UIViewRepresentable {
         applyColorTag(to: uiView)
         // Timed MTKView ignores setNeedsDisplay when enableSetNeedsDisplay is false.
         // Static frames must also invalidate the renderer, not only layer metadata.
+        context.coordinator.paired = paired
         context.coordinator.requestRedraw()
     }
 }
 
 final class Renderer: NSObject, MTKViewDelegate {
+    var paired: Bool
     private let store: FrameStore
     private let device: MTLDevice
     private let queue: MTLCommandQueue
@@ -63,7 +66,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     private let pipeline: MTLRenderPipelineState
 
-    init(store: FrameStore) {
+    init(store: FrameStore, paired: Bool) {
+        self.paired = paired
         // IMPORTANT: do not touch any instance property before super.init().
         // Build everything from local constants first.
         guard let metalDevice = MTLCreateSystemDefaultDevice() else {
@@ -125,13 +129,21 @@ final class Renderer: NSObject, MTKViewDelegate {
             return o;
         }
 
-        fragment float4 fs(V in [[stage_in]], texture2d<float> tex [[texture(0)]]) {
+        fragment float4 fs(V in [[stage_in]], texture2d<float> tex [[texture(0)]], constant uint &paired [[buffer(0)]]) {
             constexpr sampler s(
                 coord::normalized,
                 address::clamp_to_edge,
                 min_filter::nearest,
                 mag_filter::nearest
             );
+                        if (paired != 0) {
+                uint col = min(uint(in.uv.x * 3), 2u);
+                uint row = min(uint(in.uv.y * 4), 3u);
+                // Verified LR Develop layout: image bounds in the 2360x1640 source.
+                uint2 pixel = uint2(348 + (float(col)+0.5)*554,
+                                   204 + (float(row)+0.5)*288.5);
+                return float4(tex.read(pixel).rgb, 1.0);
+            }
             return tex.sample(s, in.uv);
         }
         """#
@@ -225,6 +237,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             length: MemoryLayout<SIMD2<Float>>.stride,
             index: 0
         )
+        var comparison: UInt32 = paired ? 1 : 0
+        enc.setFragmentBytes(&comparison, length: 4, index: 0)
         enc.setFragmentTexture(textures[front], index: 0)
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         enc.endEncoding()
