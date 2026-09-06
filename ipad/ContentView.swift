@@ -7,7 +7,13 @@ struct ContentView: View {
     @State private var paired = false
     @State private var swapped = false
     private let codes: [[Double]] = [[1,0.04,0.04],[0.2,1,0.15],[1,0.55,0],[1,0.08,0.58],[0,0.95,0.75],[0.7,0.1,1],[0,0,0],[0.04,0.04,0.04],[0.184,0.184,0.184],[0.5,0.5,0.5],[0.75,0.75,0.75],[1,1,1]]
+    
     var body: some View {
+        AnyView(mainContent)
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
         ZStack(alignment: .topLeading) {
             GeometryReader { g in
                 let aspect = CGFloat(DisplayConfig.width) / CGFloat(DisplayConfig.height)
@@ -17,9 +23,9 @@ struct ContentView: View {
                     MetalDisplayContainer(frameStore: server.frameStore, outputColorTag: .displayP3, paired: paired)
                     if paired {
                         VStack(spacing: 0) {
-                            ForEach(0..<4) { row in
+                            ForEach(0..<4, id: \.self) { row in
                                 HStack(spacing: 0) {
-                                    ForEach(0..<3) { col in
+                                    ForEach(0..<3, id: \.self) { col in
                                         let c = codes[row*3+col]
                                         ZStack(alignment: .bottom) {
                                             HStack(spacing: 0) {
@@ -43,6 +49,7 @@ struct ContentView: View {
                     }
                 }.frame(width:w,height:h).position(x:g.size.width/2,y:g.size.height/2)
             }.ignoresSafeArea()
+            
             if showStatus {
                 VStack(alignment: .leading) {
                     Text("FP16 • LR / P3 比較")

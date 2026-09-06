@@ -353,7 +353,7 @@ private enum ColorReferencePattern {
 private final class ColorReferenceModel: ObservableObject {
     let store = ColorReferencePattern.makeStore()
     @Published var gpuResult = "GPU check pending"
-    func check() { gpuResult = Renderer(store: store).verifyTenBitShader() }
+    func check() { gpuResult = Renderer(store: store, paired: false).verifyTenBitShader() }
 }
 
 // Keep one production Metal surface. An opaque native-P3 rectangle covers only
