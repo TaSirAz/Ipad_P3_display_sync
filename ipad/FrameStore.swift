@@ -102,11 +102,16 @@ final class FrameStore: @unchecked Sendable {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
         guard !needsFullFrame,buildingBatch==batchID,!batchTiles.isEmpty else{return false}
         framebuffer.withUnsafeMutableBytes { dstRaw in
-            let dst=dstRaw.bindMemory(to:UInt8.self).baseAddress!
+            let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!
+            let rowQwords=DisplayConfig.rowBytes / 8
             for tile in batchTiles { tile.delta.withUnsafeBytes { srcRaw in
-                let src=srcRaw.bindMemory(to:UInt8.self).baseAddress!
-                for row in 0..<tile.height { let to=(tile.y+row)*DisplayConfig.rowBytes+tile.x*DisplayConfig.bytesPerPixel,from=row*tile.width*DisplayConfig.bytesPerPixel
-                    for i in 0..<(tile.width*DisplayConfig.bytesPerPixel) { dst[to+i] ^= src[from+i] }
+                let src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
+                let tileQwords=(tile.width*DisplayConfig.bytesPerPixel) / 8
+                let startX=(tile.x*DisplayConfig.bytesPerPixel) / 8
+                for row in 0..<tile.height {
+                    let to=(tile.y+row)*rowQwords+startX
+                    let from=row*tileQwords
+                    for i in 0..<tileQwords { dst[to+i] ^= src[from+i] }
                 }
             }}
         }
@@ -117,8 +122,9 @@ final class FrameStore: @unchecked Sendable {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
         guard frame.count == DisplayConfig.frameBytes, buildingBatch == nil, lastBatch == nil || batchID > lastBatch!, !xor || !needsFullFrame else { return false }
         if xor { framebuffer.withUnsafeMutableBytes { dstRaw in frame.withUnsafeBytes { srcRaw in
-            let dst=dstRaw.bindMemory(to:UInt8.self).baseAddress!,src=srcRaw.bindMemory(to:UInt8.self).baseAddress!
-            for i in 0..<DisplayConfig.frameBytes { dst[i] ^= src[i] }
+            let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!,src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
+            let qwords=DisplayConfig.frameBytes / 8
+            for i in 0..<qwords { dst[i] ^= src[i] }
         }}} else { framebuffer=frame }
         lastBatch=batchID;needsFullFrame=false;committedGeneration &+= 1;receivedFrames &+= 1;receiveStartNs=pendingReceiveStartNs;readyNs=DispatchTime.now().uptimeNanoseconds;return true
     }
