@@ -26,6 +26,7 @@ enum DisplayConfig {
     static let maxTileBytes = tileSize * tileSize * bytesPerPixel
     static let maxCompressedTileBytes = maxTileBytes + maxTileBytes / 255 + 16
     static let port: UInt16 = 55002
+    static let secondaryPort: UInt16 = 55003
     static let magic = "IPD17RAW"
     static let defaultOutputColorTag: OutputColorTag = .displayP3
     static var hello: Data {
