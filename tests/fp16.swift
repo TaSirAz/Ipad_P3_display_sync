@@ -39,6 +39,20 @@ guard let decodedDelta=LosslessCodec.decodeFull(fullPayload(delta,xor:true),expe
 check(store.publish(frame:decodedDelta,batchID:2,xor:true,expectedEpoch:epoch),"publish xor full")
 check(store.consume()==second,"xor full byte exact")
 
+// Verify 8-plane byte shuffle decoding
+var shufDst = Data(count: delta.count)
+let numPix = delta.count / 8
+shufDst.withUnsafeMutableBytes { dstRaw in delta.withUnsafeBytes { srcRaw in
+    let d = dstRaw.bindMemory(to: UInt8.self).baseAddress!, s = srcRaw.bindMemory(to: UInt8.self).baseAddress!
+    for b in 0..<8 { let pDst = d + b * numPix; for p in 0..<numPix { pDst[p] = s[p * 8 + b] } }
+}}
+let encShuf = encodeLZ4(shufDst)
+var shufPayload = Data()
+for v in [UInt32(17), UInt32(shufDst.count), UInt32(encShuf.count), UInt32(3)] { appendU32(v, to: &shufPayload) }
+shufPayload.append(encShuf)
+guard let decShufDelta = LosslessCodec.decodeFull(shufPayload, expectedXor: true) else { fatalError("shuf decode") }
+check(decShufDelta == delta, "shuffled delta byte exact")
+
 var third=second;third[100]^=7
 let tileWidth=min(DisplayConfig.tileSize,DisplayConfig.width),tileHeight=min(DisplayConfig.tileSize,DisplayConfig.height)
 var tileDelta=Data(count:tileWidth*tileHeight*DisplayConfig.bytesPerPixel)

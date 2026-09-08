@@ -4,6 +4,7 @@ import Compression
 enum LosslessCodec {
     static let lz4Raw: UInt32 = 1
     static let xorFlag: UInt32 = 1
+    static let shuffleFlag: UInt32 = 2
     static func decodeLZ4(_ encoded: Data, decodedBytes: Int) -> Data? {
         guard decodedBytes > 0, encoded.count > 0 else { return nil }
         var result = Data(count: decodedBytes + 1)
@@ -16,12 +17,50 @@ enum LosslessCodec {
         guard count == decodedBytes else { return nil }
         result.removeLast(); return result
     }
+    static func unshuffle8(_ srcData: Data) -> Data {
+        var dst = Data(count: srcData.count)
+        let numPixels = srcData.count / 8
+        dst.withUnsafeMutableBytes { dstRaw in
+            srcData.withUnsafeBytes { srcRaw in
+                let d = dstRaw.bindMemory(to: UInt64.self).baseAddress!
+                let s = srcRaw.bindMemory(to: UInt8.self).baseAddress!
+                let p0 = s
+                let p1 = s + numPixels
+                let p2 = s + numPixels * 2
+                let p3 = s + numPixels * 3
+                let p4 = s + numPixels * 4
+                let p5 = s + numPixels * 5
+                let p6 = s + numPixels * 6
+                let p7 = s + numPixels * 7
+                for i in 0..<numPixels {
+                    let w = UInt64(p0[i]) |
+                            (UInt64(p1[i]) << 8) |
+                            (UInt64(p2[i]) << 16) |
+                            (UInt64(p3[i]) << 24) |
+                            (UInt64(p4[i]) << 32) |
+                            (UInt64(p5[i]) << 40) |
+                            (UInt64(p6[i]) << 48) |
+                            (UInt64(p7[i]) << 56)
+                    d[i] = w
+                }
+            }
+        }
+        return dst
+    }
     static func decodeFull(_ payload: Data, expectedXor: Bool) -> Data? {
         guard payload.count >= 17, payload.u32LE(at: 0) == 17,
               Int(payload.u32LE(at: 4)) == DisplayConfig.frameBytes else { return nil }
         let encodedBytes = Int(payload.u32LE(at: 8)), flags = payload.u32LE(at: 12)
-        guard flags == (expectedXor ? xorFlag : 0), encodedBytes == payload.count - 16 else { return nil }
-        return decodeLZ4(payload.subdata(in: 16..<payload.count), decodedBytes: DisplayConfig.frameBytes)
+        if expectedXor {
+            guard flags == xorFlag || flags == (xorFlag | shuffleFlag), encodedBytes == payload.count - 16 else { return nil }
+        } else {
+            guard flags == 0, encodedBytes == payload.count - 16 else { return nil }
+        }
+        guard let decoded = decodeLZ4(payload.subdata(in: 16..<payload.count), decodedBytes: DisplayConfig.frameBytes) else { return nil }
+        if (flags & shuffleFlag) != 0 {
+            return unshuffle8(decoded)
+        }
+        return decoded
     }
 }
 
