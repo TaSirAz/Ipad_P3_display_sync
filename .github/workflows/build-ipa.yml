@@ -20,7 +20,14 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          xcodebuild -project iPadDisplayNative.xcodeproj -scheme iPadDisplayNative -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tee build/xcodebuild.log
+          xcodebuild -project iPadDisplayNative.xcodeproj -scheme iPadDisplayNative -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build/xcodebuild.log
+      - name: Report build errors on failure
+        if: failure()
+        run: |
+          echo "=== COMPILER ERRORS ==="
+          grep -E "(error:|fatal error:)" build/xcodebuild.log -B 2 -A 3 || true
+          echo "=== LAST 150 LINES OF LOG ==="
+          tail -n 150 build/xcodebuild.log || true
       - name: Package
         run: |
           mkdir -p build/package/Payload
@@ -28,6 +35,13 @@ jobs:
           cd build/package
           zip -qry ../iPadDisplayFP16-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: iPadDisplayFP16-unsigned
           path: build/iPadDisplayFP16-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore

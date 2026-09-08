@@ -347,12 +347,11 @@ private enum ColorReferencePattern {
         var words = [UInt16](repeating: 0, count: width * height * 4)
         var fp16Codes = [[UInt16]]()
         for code in codes {
-            fp16Codes.append([
-                Float16(Float(code[0]) / 1023).bitPattern,
-                Float16(Float(code[1]) / 1023).bitPattern,
-                Float16(Float(code[2]) / 1023).bitPattern,
-                Float16(1).bitPattern
-            ])
+            let r = Float16(Float(code[0]) / 1023.0).bitPattern
+            let g = Float16(Float(code[1]) / 1023.0).bitPattern
+            let b = Float16(Float(code[2]) / 1023.0).bitPattern
+            let a = Float16(1.0 as Float).bitPattern
+            fp16Codes.append([r, g, b, a])
         }
         for y in 0..<height {
             let patchRow = y * rows / height

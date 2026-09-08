@@ -62,25 +62,36 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
             guard let self,let c,self.connection===c else{return};self.jobs -= 1;if !ok{self.fail(c,"Invalid or non-lossless frame work");return};if completesFrame{self.reportFrame(on:c,sequence:sequence)};self.receivePacket(on:c)}}
         receivePacket(on:c)
     }
-    private func receivePacket(on c:NWConnection){
-        guard connection===c,!reading,jobs<2 else{return};reading=true
-        receiveExact(32,on:c,tracked:false){[weak self] header in
-            guard let self,self.connection===c else{return}
-            guard header.prefix(8)==Data(DisplayConfig.magic.utf8),header.u64LE(at:24)==0 else{self.fail(c,"v17 protocol mismatch");return}
-            let type=header.u32LE(at:8),size=Int(header.u32LE(at:12)),sequence=header.u64LE(at:16)
-            if self.timingBatch != sequence{self.timingBatch=sequence;self.readNs=0;self.appendNs=0;self.callbacks=0;self.batchStartNs=DispatchTime.now().uptimeNanoseconds}
-            switch type{
-            case 4,19:
-                let limit=DisplayConfig.frameBytes+DisplayConfig.frameBytes/255+64
-                guard size>=17,size<=limit else{self.fail(c,"Invalid compressed frame size");return}
-                self.receiveExact(size,on:c){[weak self] payload in guard let self,self.connection===c else{return};self.enqueue(.full(payload,type==19),on:c,sequence:sequence,completesFrame:true)}
+    private func receivePacket(on c: NWConnection) {
+        guard connection === c, !reading, jobs < 2 else { return }
+        reading = true
+        receiveExact(32, on: c, tracked: false) { [weak self] header in
+            guard let self, self.connection === c else { return }
+            guard header.prefix(8) == Data(DisplayConfig.magic.utf8), header.u64LE(at: 24) == 0 else { self.fail(c, "v17 protocol mismatch"); return }
+            let type = header.u32LE(at: 8), size = Int(header.u32LE(at: 12)), sequence = header.u64LE(at: 16)
+            if self.timingBatch != sequence { self.timingBatch = sequence; self.readNs = 0; self.appendNs = 0; self.callbacks = 0; self.batchStartNs = DispatchTime.now().uptimeNanoseconds }
+            switch type {
+            case 4, 19:
+                let limit = DisplayConfig.frameBytes + DisplayConfig.frameBytes / 255 + 64
+                guard size >= 17, size <= limit else { self.fail(c, "Invalid compressed frame size"); return }
+                self.receiveExact(size, on: c) { [weak self] payload in guard let self, self.connection === c else { return }; self.enqueue(.full(payload, type == 19), on: c, sequence: sequence, completesFrame: true) }
             case 17:
-                guard size>=25,size<=24+DisplayConfig.maxCompressedTileBytes else{self.fail(c,"Invalid compressed tile size");return}
-                self.receiveExact(24,on:c){[weak self] th in guard let self,self.connection===c else{return}
-                    let x=Int(th.u16LE(at:0)),y=Int(th.u16LE(at:2)),w=Int(th.u16LE(at:4)),h=Int(th.u16LE(at:6)),decoded=Int(th.u32LE(at:8)),encoded=Int(th.u32LE(at:12)),tile=DisplayConfig.tileSize
-                    guard x<DisplayConfig.width,y<DisplayConfig.height,x%tile==0,y%tile==0,w==min(tile,DisplayConfig.width-x),h==min(tile,DisplayConfig.height-y),decoded==w*h*DisplayConfig.bytesPerPixel,
-                          encoded==size-24,th.u32LE(at:16)==LosslessCodec.lz4Raw,th.u32LE(at:20)==LosslessCodec.xorFlag else{self.fail(c,"Invalid FP16 tile header");return}
-                    self.receiveExact(encoded,on:c){[weak self] data in guard let self,self.connection===c else{return};let tile=CompressedTileUpdate(batchID:sequence,x:x,y:y,width:w,height:h,decodedBytes:decoded,encoded:data);self.enqueue(.tile(tile),on:c,sequence:sequence,completesFrame:false)}
+                guard size >= 25, size <= 24 + DisplayConfig.maxCompressedTileBytes else { self.fail(c, "Invalid compressed tile size"); return }
+                self.receiveExact(24, on: c) { [weak self] th in
+                    guard let self, self.connection === c else { return }
+                    let x = Int(th.u16LE(at: 0)), y = Int(th.u16LE(at: 2)), w = Int(th.u16LE(at: 4)), h = Int(th.u16LE(at: 6)), decoded = Int(th.u32LE(at: 8)), encoded = Int(th.u32LE(at: 12)), tile = DisplayConfig.tileSize
+                    guard x < DisplayConfig.width, y < DisplayConfig.height, x % tile == 0, y % tile == 0,
+                          w == min(tile, DisplayConfig.width - x), h == min(tile, DisplayConfig.height - y),
+                          decoded == w * h * DisplayConfig.bytesPerPixel,
+                          encoded == size - 24, th.u32LE(at: 16) == LosslessCodec.lz4Raw, th.u32LE(at: 20) == LosslessCodec.xorFlag else {
+                        self.fail(c, "Invalid FP16 tile header")
+                        return
+                    }
+                    self.receiveExact(encoded, on: c) { [weak self] data in
+                        guard let self, self.connection === c else { return }
+                        let tile = CompressedTileUpdate(batchID: sequence, x: x, y: y, width: w, height: h, decodedBytes: decoded, encoded: data)
+                        self.enqueue(.tile(tile), on: c, sequence: sequence, completesFrame: false)
+                    }
                 }
             case 18:
                 guard size==0 else{self.fail(c,"Invalid commit");return};self.enqueue(.commit,on:c,sequence:sequence,completesFrame:true)
