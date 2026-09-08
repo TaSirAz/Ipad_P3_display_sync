@@ -344,22 +344,26 @@ private enum ColorReferencePattern {
         let store = FrameStore()
         let width: Int = DisplayConfig.width
         let height: Int = DisplayConfig.height
-        var words = [UInt32](repeating: 0, count: width * height)
-        var packedCodes = [UInt32]()
+        var words = [UInt16](repeating: 0, count: width * height * 4)
+        var fp16Codes = [[UInt16]]()
         for code in codes {
-            let blue: UInt32 = code[2]
-            let green: UInt32 = code[1] << 10
-            let red: UInt32 = code[0] << 20
-            let rgb: UInt32 = blue | green | red
-            packedCodes.append(rgb | UInt32(0xc0000000))
+            fp16Codes.append([
+                Float16(Float(code[0]) / 1023).bitPattern,
+                Float16(Float(code[1]) / 1023).bitPattern,
+                Float16(Float(code[2]) / 1023).bitPattern,
+                Float16(1).bitPattern
+            ])
         }
         for y in 0..<height {
-            let patchRow: Int = y * rows / height
-            let rowStart: Int = y * width
+            let patchRow = y * rows / height
             for x in 0..<width {
-                let patchColumn: Int = x * columns / width
-                let patchIndex: Int = patchRow * columns + patchColumn
-                words[rowStart + x] = packedCodes[patchIndex]
+                let patchColumn = x * columns / width
+                let pixel = fp16Codes[patchRow * columns + patchColumn]
+                let offset = (y * width + x) * 4
+                words[offset] = pixel[0]
+                words[offset + 1] = pixel[1]
+                words[offset + 2] = pixel[2]
+                words[offset + 3] = pixel[3]
             }
         }
         let data: Data = words.withUnsafeBytes { raw in Data(raw) }
@@ -486,3 +490,4 @@ struct StreamColorReferenceView: View {
         }
     }
 }
+
