@@ -34,7 +34,7 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
         if let layer = view.layer as? CAMetalLayer {
             layer.pixelFormat = .rgba16Float
-            layer.maximumDrawableCount = 2
+            layer.maximumDrawableCount = 3
         }
         applyColorTag(to: view)
 
@@ -64,7 +64,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var frontPending = false
     private var frontEpoch: UInt64 = 0
     private var frontSequence: UInt64 = 0, frontReceiveStart: UInt64 = 0
-    private let gpuAvailable = DispatchSemaphore(value: 1)
+    private let gpuAvailable = DispatchSemaphore(value: 2)
 
     private let pipeline: MTLRenderPipelineState
 
