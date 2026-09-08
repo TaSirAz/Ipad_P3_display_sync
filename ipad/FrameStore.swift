@@ -115,7 +115,7 @@ final class FrameStore: @unchecked Sendable {
     }
     func publish(frame: Data,batchID: UInt64,xor: Bool=false,expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
-        guard frame.count==DisplayConfig.frameBytes,buildingBatch==nil,lastBatch==nil||batchID>lastBatch!,!xor||!needsFullFrame else{return false}
+        guard frame.count == DisplayConfig.frameBytes, buildingBatch == nil, lastBatch == nil || batchID > lastBatch!, !xor || !needsFullFrame else { return false }
         if xor { framebuffer.withUnsafeMutableBytes { dstRaw in frame.withUnsafeBytes { srcRaw in
             let dst=dstRaw.bindMemory(to:UInt8.self).baseAddress!,src=srcRaw.bindMemory(to:UInt8.self).baseAddress!
             for i in 0..<DisplayConfig.frameBytes { dst[i] ^= src[i] }
@@ -155,4 +155,5 @@ extension Data {
     func u32LE(at o:Int)->UInt32{UInt32(u16LE(at:o))|(UInt32(u16LE(at:o+2))<<16)}
     func u64LE(at o:Int)->UInt64{UInt64(u32LE(at:o))|(UInt64(u32LE(at:o+4))<<32)}
 }
+
 
