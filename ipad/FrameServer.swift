@@ -31,7 +31,13 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                 guard let self,let l,self.listener===l else{c.cancel();return}
                 self.timingTimer?.cancel();self.connection?.cancel();self.frameStore.reset();self.connection=c;self.jobs=0;self.reading=false
                 self.connectionEpoch=self.frameStore.currentEpoch();self.lastStatsTime=DispatchTime.now().uptimeNanoseconds;self.lastReceived=0;self.lastPresented=0;self.timingBatch=nil;self.timingSendBusy=false
-                let timer=DispatchSource.makeTimerSource(queue:self.queue);timer.schedule(deadline:.now()+.milliseconds(20),repeating:.milliseconds(20));timer.setEventHandler{[weak self,weak c] in if let self,let c{self.flushTiming(on:c)}};self.timingTimer=timer;timer.resume()
+                let timer = DispatchSource.makeTimerSource(queue: self.queue)
+                timer.schedule(deadline: .now() + .milliseconds(20), repeating: .milliseconds(20))
+                timer.setEventHandler { [weak self, weak c] in
+                    if let self, let c { self.flushTiming(on: c) }
+                }
+                self.timingTimer = timer
+                timer.resume()
                 c.stateUpdateHandler={[weak self,weak c] state in guard let self,let c,self.connection===c else{return};switch state{
                 case .ready:c.send(content:DisplayConfig.hello,completion:.contentProcessed{[weak self,weak c] error in guard let self,let c,self.connection===c else{return};if let error{self.fail(c,error.localizedDescription);return};self.report("CONNECTED • WAITING FOR LOSSLESS FP16");self.receivePacket(on:c)})
                 case .failed(let e):self.fail(c,e.localizedDescription)
