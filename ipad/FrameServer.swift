@@ -331,7 +331,7 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                 guard let self else { return }
                 self.jobs -= 1
                 if !ok {
-                    if let c0 = self.connection0 { self.handleFail(c0, isSecondary: false, "Invalid or non-lossless frame work") }
+                    self.pump()
                     return
                 }
                 if completesFrame {
@@ -359,7 +359,6 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
         }
         c.send(content: data, completion: .contentProcessed { [weak self, weak c] error in
             guard let self, let c, self.connection0 === c else { return }
-            if let error { self.handleFail(c, isSecondary: false, error.localizedDescription) }
         })
     }
 
@@ -380,7 +379,6 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
         c.send(content: data, completion: .contentProcessed { [weak self, weak c] error in
             guard let self, let c, self.connection0 === c else { return }
             self.timingSendBusy = false
-            if let error { self.handleFail(c, isSecondary: false, error.localizedDescription) }
         })
     }
 }

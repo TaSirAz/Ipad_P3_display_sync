@@ -164,7 +164,10 @@ final class FrameStore: @unchecked Sendable {
             tileIndices.removeAll(keepingCapacity: true)
             buildingBatch = nil
         }
-        guard frame.count == DisplayConfig.frameBytes, lastBatch == nil || batchID > lastBatch!, !xor || !needsFullFrame else { return false }
+        guard frame.count == DisplayConfig.frameBytes, !xor || !needsFullFrame else { return false }
+        if let last = lastBatch, batchID <= last {
+            return true // Safely ignore out-of-order older frame without aborting connection
+        }
         if xor { framebuffer.withUnsafeMutableBytes { dstRaw in frame.withUnsafeBytes { srcRaw in
             let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!,src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
             let qwords=DisplayConfig.frameBytes / 8
