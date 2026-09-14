@@ -271,8 +271,8 @@ final class FrameServer: ObservableObject, @unchecked Sendable {
                         } else {
                             self.pendingFrames[sequence] = pending
                         }
-                        if self.pendingFrames.count > 4 {
-                            let oldest = self.pendingFrames.keys.filter { $0 + 4 < sequence }
+                        if self.pendingFrames.count > 16 {
+                            let oldest = self.pendingFrames.keys.filter { $0 + 16 < sequence }
                             for k in oldest { self.pendingFrames.removeValue(forKey: k) }
                         }
                         self.pump()

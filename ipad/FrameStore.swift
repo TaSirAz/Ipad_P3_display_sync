@@ -159,7 +159,12 @@ final class FrameStore: @unchecked Sendable {
     }
     func publish(frame: Data,batchID: UInt64,xor: Bool=false,expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
-        guard frame.count == DisplayConfig.frameBytes, buildingBatch == nil, lastBatch == nil || batchID > lastBatch!, !xor || !needsFullFrame else { return false }
+        if buildingBatch != nil {
+            batchTiles.removeAll(keepingCapacity: true)
+            tileIndices.removeAll(keepingCapacity: true)
+            buildingBatch = nil
+        }
+        guard frame.count == DisplayConfig.frameBytes, lastBatch == nil || batchID > lastBatch!, !xor || !needsFullFrame else { return false }
         if xor { framebuffer.withUnsafeMutableBytes { dstRaw in frame.withUnsafeBytes { srcRaw in
             let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!,src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
             let qwords=DisplayConfig.frameBytes / 8
