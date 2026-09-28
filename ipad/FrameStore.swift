@@ -4,7 +4,6 @@ import Compression
 enum LosslessCodec {
     static let lz4Raw: UInt32 = 1
     static let xorFlag: UInt32 = 1
-    static let shuffleFlag: UInt32 = 2
     static func decodeLZ4(_ encoded: Data, decodedBytes: Int) -> Data? {
         guard decodedBytes > 0, encoded.count > 0 else { return nil }
         var result = Data(count: decodedBytes + 1)
@@ -17,50 +16,12 @@ enum LosslessCodec {
         guard count == decodedBytes else { return nil }
         result.removeLast(); return result
     }
-    static func unshuffle8(_ srcData: Data) -> Data {
-        var dst = Data(count: srcData.count)
-        let numPixels = srcData.count / 8
-        dst.withUnsafeMutableBytes { dstRaw in
-            srcData.withUnsafeBytes { srcRaw in
-                let d = dstRaw.bindMemory(to: UInt64.self).baseAddress!
-                let s = srcRaw.bindMemory(to: UInt8.self).baseAddress!
-                let p0 = s
-                let p1 = s + numPixels
-                let p2 = s + numPixels * 2
-                let p3 = s + numPixels * 3
-                let p4 = s + numPixels * 4
-                let p5 = s + numPixels * 5
-                let p6 = s + numPixels * 6
-                let p7 = s + numPixels * 7
-                for i in 0..<numPixels {
-                    let w = UInt64(p0[i]) |
-                            (UInt64(p1[i]) << 8) |
-                            (UInt64(p2[i]) << 16) |
-                            (UInt64(p3[i]) << 24) |
-                            (UInt64(p4[i]) << 32) |
-                            (UInt64(p5[i]) << 40) |
-                            (UInt64(p6[i]) << 48) |
-                            (UInt64(p7[i]) << 56)
-                    d[i] = w
-                }
-            }
-        }
-        return dst
-    }
     static func decodeFull(_ payload: Data, expectedXor: Bool) -> Data? {
         guard payload.count >= 17, payload.u32LE(at: 0) == 17,
               Int(payload.u32LE(at: 4)) == DisplayConfig.frameBytes else { return nil }
         let encodedBytes = Int(payload.u32LE(at: 8)), flags = payload.u32LE(at: 12)
-        if expectedXor {
-            guard flags == xorFlag || flags == (xorFlag | shuffleFlag), encodedBytes == payload.count - 16 else { return nil }
-        } else {
-            guard flags == 0, encodedBytes == payload.count - 16 else { return nil }
-        }
-        guard let decoded = decodeLZ4(payload.subdata(in: 16..<payload.count), decodedBytes: DisplayConfig.frameBytes) else { return nil }
-        if (flags & shuffleFlag) != 0 {
-            return unshuffle8(decoded)
-        }
-        return decoded
+        guard flags == (expectedXor ? xorFlag : 0), encodedBytes == payload.count - 16 else { return nil }
+        return decodeLZ4(payload.subdata(in: 16..<payload.count), decodedBytes: DisplayConfig.frameBytes)
     }
 }
 
@@ -68,6 +29,14 @@ struct FrameSnapshot: Sendable {
     let data: Data, epoch: UInt64
     let countable: Bool
     let sequence: UInt64, readyNs: UInt64, receiveStartNs: UInt64
+    let fullDamage: Bool
+    let dirtyRegions: [FrameDamage]
+}
+struct FrameDamage: Sendable {
+    let x: Int, y: Int, width: Int, height: Int
+}
+private struct DamageRunKey: Hashable {
+    let x: Int, width: Int
 }
 struct XorTileUpdate: Sendable {
     let batchID: UInt64
@@ -93,6 +62,8 @@ final class FrameStore: @unchecked Sendable {
     private var receivedFrames: UInt64 = 0, presentedFrames: UInt64 = 0
     private var readyNs: UInt64 = 0, timingSequence: UInt64 = 0
     private var receiveStartNs: UInt64 = 0, pendingReceiveStartNs: UInt64 = 0
+    private var pendingFullDamage = true
+    private var pendingDirtyTiles: Set<Int> = []
     private var events: [(UInt64,UInt64,UInt64)] = [], lostEvents: UInt64 = 0
 
     func referenceReadings(codes: [[UInt32]]) -> String {
@@ -126,6 +97,7 @@ final class FrameStore: @unchecked Sendable {
     func reset() {
         lock.lock(); defer { lock.unlock() };framebuffer=Data(count:DisplayConfig.frameBytes)
         batchTiles.removeAll(keepingCapacity:true);tileIndices.removeAll(keepingCapacity:true);buildingBatch=nil;lastBatch=nil;needsFullFrame=true
+        pendingFullDamage=true;pendingDirtyTiles.removeAll(keepingCapacity:true)
         epoch &+= 1;receivedFrames=0;presentedFrames=0;events.removeAll(keepingCapacity:true);lostEvents=0;readyNs=0;receiveStartNs=0;pendingReceiveStartNs=0;timingSequence=0;committedGeneration &+= 1
     }
     func receive(tile: XorTileUpdate,expectedEpoch: UInt64? = nil) -> Bool {
@@ -141,45 +113,80 @@ final class FrameStore: @unchecked Sendable {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
         guard !needsFullFrame,buildingBatch==batchID,!batchTiles.isEmpty else{return false}
         framebuffer.withUnsafeMutableBytes { dstRaw in
-            let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!
-            let rowQwords=DisplayConfig.rowBytes / 8
+            let dst=dstRaw.bindMemory(to:UInt8.self).baseAddress!
             for tile in batchTiles { tile.delta.withUnsafeBytes { srcRaw in
-                let src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
-                let tileQwords=(tile.width*DisplayConfig.bytesPerPixel) / 8
-                let startX=(tile.x*DisplayConfig.bytesPerPixel) / 8
-                for row in 0..<tile.height {
-                    let to=(tile.y+row)*rowQwords+startX
-                    let from=row*tileQwords
-                    for i in 0..<tileQwords { dst[to+i] ^= src[from+i] }
+                let src=srcRaw.bindMemory(to:UInt8.self).baseAddress!
+                for row in 0..<tile.height { let to=(tile.y+row)*DisplayConfig.rowBytes+tile.x*DisplayConfig.bytesPerPixel,from=row*tile.width*DisplayConfig.bytesPerPixel
+                    for i in 0..<(tile.width*DisplayConfig.bytesPerPixel) { dst[to+i] ^= src[from+i] }
                 }
             }}
+        }
+        if !pendingFullDamage {
+            pendingDirtyTiles.formUnion(tileIndices)
+            // At this point, uploading two complete textures is usually cheaper
+            // than issuing a large set of subregion writes. Keep the cutoff
+            // conservative; it can be tuned with device-side timing data.
+            if pendingDirtyTiles.count * 4 >= DisplayConfig.tileCount * 3 {
+                pendingFullDamage=true;pendingDirtyTiles.removeAll(keepingCapacity:true)
+            }
         }
         batchTiles.removeAll(keepingCapacity:true);tileIndices.removeAll(keepingCapacity:true);buildingBatch=nil;lastBatch=batchID
         receivedFrames &+= 1;committedGeneration &+= 1;receiveStartNs=pendingReceiveStartNs;readyNs=DispatchTime.now().uptimeNanoseconds;return true
     }
     func publish(frame: Data,batchID: UInt64,xor: Bool=false,expectedEpoch: UInt64? = nil) -> Bool {
         lock.lock();defer{lock.unlock()};if let expectedEpoch,expectedEpoch != epoch{return false}
-        if buildingBatch != nil {
-            batchTiles.removeAll(keepingCapacity: true)
-            tileIndices.removeAll(keepingCapacity: true)
-            buildingBatch = nil
-        }
-        guard frame.count == DisplayConfig.frameBytes, !xor || !needsFullFrame else { return false }
-        if let last = lastBatch, batchID <= last {
-            return true // Safely ignore out-of-order older frame without aborting connection
-        }
+        guard frame.count==DisplayConfig.frameBytes,buildingBatch==nil,lastBatch==nil||batchID>lastBatch!,!xor||!needsFullFrame else{return false}
         if xor { framebuffer.withUnsafeMutableBytes { dstRaw in frame.withUnsafeBytes { srcRaw in
-            let dst=dstRaw.bindMemory(to:UInt64.self).baseAddress!,src=srcRaw.bindMemory(to:UInt64.self).baseAddress!
-            let qwords=DisplayConfig.frameBytes / 8
-            for i in 0..<qwords { dst[i] ^= src[i] }
+            let dst=dstRaw.bindMemory(to:UInt8.self).baseAddress!,src=srcRaw.bindMemory(to:UInt8.self).baseAddress!
+            for i in 0..<DisplayConfig.frameBytes { dst[i] ^= src[i] }
         }}} else { framebuffer=frame }
+        pendingFullDamage=true;pendingDirtyTiles.removeAll(keepingCapacity:true)
         lastBatch=batchID;needsFullFrame=false;committedGeneration &+= 1;receivedFrames &+= 1;receiveStartNs=pendingReceiveStartNs;readyNs=DispatchTime.now().uptimeNanoseconds;return true
     }
     func didPresent(epoch frameEpoch: UInt64){lock.lock();defer{lock.unlock()};if frameEpoch==epoch{presentedFrames &+= 1}}
     func statistics()->(received:UInt64,presented:UInt64){lock.lock();defer{lock.unlock()};return(receivedFrames,presentedFrames)}
     func consume()->Data?{consumeFrame()?.data}
-    func consumeFrame()->FrameSnapshot?{lock.lock();defer{lock.unlock()};guard committedGeneration != consumedGeneration else{return nil};consumedGeneration=committedGeneration
-        return FrameSnapshot(data:framebuffer,epoch:epoch,countable:receivedFrames>0,sequence:lastBatch ?? 0,readyNs:readyNs,receiveStartNs:receiveStartNs)}
+    private func coalescedDirtyRegions() -> [FrameDamage] {
+        let columns=(DisplayConfig.width+DisplayConfig.tileSize-1)/DisplayConfig.tileSize
+        let rows=(DisplayConfig.height+DisplayConfig.tileSize-1)/DisplayConfig.tileSize
+        var result:[FrameDamage]=[]
+        var active:[DamageRunKey:Int]=[:]
+        for tileY in 0..<rows {
+            var nextActive:[DamageRunKey:Int]=[:]
+            var tileX=0
+            while tileX<columns {
+                let index=tileY*columns+tileX
+                guard pendingDirtyTiles.contains(index) else { tileX += 1;continue }
+                let firstX=tileX
+                repeat { tileX += 1 }
+                while tileX<columns && pendingDirtyTiles.contains(tileY*columns+tileX)
+                let x=firstX*DisplayConfig.tileSize,y=tileY*DisplayConfig.tileSize
+                let width=min(DisplayConfig.width-x,(tileX-firstX)*DisplayConfig.tileSize)
+                let height=min(DisplayConfig.tileSize,DisplayConfig.height-y)
+                let key=DamageRunKey(x:x,width:width)
+                if let previous=active[key],result[previous].y+result[previous].height==y {
+                    let old=result[previous]
+                    result[previous]=FrameDamage(x:old.x,y:old.y,width:old.width,height:old.height+height)
+                    nextActive[key]=previous
+                } else {
+                    result.append(FrameDamage(x:x,y:y,width:width,height:height))
+                    nextActive[key]=result.count-1
+                }
+            }
+            active=nextActive
+        }
+        return result
+    }
+    func consumeFrame()->FrameSnapshot? {
+        lock.lock();defer{lock.unlock()}
+        guard committedGeneration != consumedGeneration else{return nil}
+        consumedGeneration=committedGeneration
+        let full=pendingFullDamage
+        let regions=full ? [] : coalescedDirtyRegions()
+        pendingFullDamage=false;pendingDirtyTiles.removeAll(keepingCapacity:true)
+        return FrameSnapshot(data:framebuffer,epoch:epoch,countable:receivedFrames>0,sequence:lastBatch ?? 0,
+                             readyNs:readyNs,receiveStartNs:receiveStartNs,fullDamage:full,dirtyRegions:regions)
+    }
 }
 
 enum FrameWork: Sendable { case tile(CompressedTileUpdate);case full(Data,Bool);case commit }

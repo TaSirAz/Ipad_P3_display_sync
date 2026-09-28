@@ -10,8 +10,6 @@ struct ContentView: View {
     @State private var paired = false
     @State private var swapped = false
 
-    @State private var showControls = false
-
     private let colors: [[Double]] = [
         [1, 0.04, 0.04],
         [0.2, 1, 0.15],
@@ -28,66 +26,39 @@ struct ContentView: View {
     ]
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        VStack(spacing: 12) {
+            Text(verification).font(.caption)
+            HStack {
+                Text("Windows 串流 / 原生 P3")
+                    .font(.headline)
+
+                Spacer()
+
+                Button(paired ? "回到串流" : "LR／原生 P3 並排") {
+                    paired.toggle()
+                }
+
+                if paired {
+                    Button("交換左右") {
+                        swapped.toggle()
+                    }
+                }
+            }
 
             MetalDisplayContainer(
                 frameStore: store,
                 outputColorTag: .displayP3
             )
-            .ignoresSafeArea()
             .overlay {
                 if paired {
                     comparisonGrid
                 }
             }
-
-            if showControls {
-                VStack {
-                    HStack {
-                        Text("Windows 串流 / 原生 P3")
-                            .font(.subheadline.bold())
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-
-                        Spacer()
-
-                        Button(paired ? "回到串流" : "LR／原生 P3 並排") {
-                            paired.toggle()
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        if paired {
-                            Button("交換左右") {
-                                swapped.toggle()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    .padding()
-
-                    Spacer()
-
-                    if !verification.isEmpty {
-                        Text(verification)
-                            .font(.caption.monospaced())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                            .padding(.bottom, 8)
-                    }
-                }
-                .transition(.opacity)
-            }
+            .clipShape(
+                RoundedRectangle(cornerRadius: 12)
+            )
         }
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showControls.toggle()
-            }
-        }
+        .padding()
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FP16Verification"))) { notification in
             if let message = notification.object as? String { verification = message }
         }

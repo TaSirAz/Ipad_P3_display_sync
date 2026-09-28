@@ -34,7 +34,7 @@ struct MetalDisplayContainer: UIViewRepresentable {
 
         if let layer = view.layer as? CAMetalLayer {
             layer.pixelFormat = .rgba16Float
-            layer.maximumDrawableCount = 3
+            layer.maximumDrawableCount = 2
         }
         applyColorTag(to: view)
 
@@ -64,7 +64,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var frontPending = false
     private var frontEpoch: UInt64 = 0
     private var frontSequence: UInt64 = 0, frontReceiveStart: UInt64 = 0
-    private let gpuAvailable = DispatchSemaphore(value: 2)
+    private let gpuAvailable = DispatchSemaphore(value: 1)
 
     private let pipeline: MTLRenderPipelineState
 
@@ -185,6 +185,19 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     func requestRedraw() { needsRedraw = true }
 
+    private func upload(_ frame: Data, to texture: MTLTexture, region: FrameDamage) {
+        let offset=region.y*DisplayConfig.rowBytes+region.x*DisplayConfig.bytesPerPixel
+        frame.withUnsafeBytes { raw in
+            guard let base=raw.baseAddress else{return}
+            texture.replace(
+                region: MTLRegionMake2D(region.x,region.y,region.width,region.height),
+                mipmapLevel: 0,
+                withBytes: base.advanced(by: offset),
+                bytesPerRow: DisplayConfig.rowBytes
+            )
+        }
+    }
+
     func draw(in view: MTKView) {
         guard gpuAvailable.wait(timeout: .now()) == .success else { return }
         var submitted = false
@@ -196,22 +209,28 @@ final class Renderer: NSObject, MTKViewDelegate {
             let frame = snapshot.data
             let next = 1 - front
 
-            frame.withUnsafeBytes { raw in
-                if let p = raw.baseAddress {
-                    textures[next].replace(
-                        region: MTLRegionMake2D(0,0,DisplayConfig.width,DisplayConfig.height),
-                        mipmapLevel: 0,
-                        withBytes: p,
-                        bytesPerRow: DisplayConfig.rowBytes
-                    )
+            if snapshot.fullDamage {
+                let whole=FrameDamage(x:0,y:0,width:DisplayConfig.width,height:DisplayConfig.height)
+                // Keep both backing textures at the same committed generation.
+                // This makes the next alternating front safe even after skipped draws.
+                upload(frame,to:textures[0],region:whole)
+                upload(frame,to:textures[1],region:whole)
+                front=next
+            } else if !snapshot.dirtyRegions.isEmpty {
+                // Damage is accumulated through atomic FrameStore commits. Apply
+                // the final bytes to both textures before either can become front.
+                for region in snapshot.dirtyRegions {
+                    upload(frame,to:textures[0],region:region)
+                    upload(frame,to:textures[1],region:region)
                 }
+                front=next
             }
 
             if snapshot.countable && verifiedEpoch != snapshot.epoch {
                 verifiedEpoch = snapshot.epoch
                 var readback = Data(count: frame.count)
                 readback.withUnsafeMutableBytes { raw in
-                    textures[next].getBytes(raw.baseAddress!, bytesPerRow: DisplayConfig.rowBytes,
+                    textures[front].getBytes(raw.baseAddress!, bytesPerRow: DisplayConfig.rowBytes,
                         from: MTLRegionMake2D(0, 0, DisplayConfig.width, DisplayConfig.height), mipmapLevel: 0)
                 }
                 let digest = SHA256.hash(data: readback).map { String(format: "%02x", $0) }.joined()
@@ -347,11 +366,12 @@ private enum ColorReferencePattern {
         var words = [UInt16](repeating: 0, count: width * height * 4)
         var fp16Codes = [[UInt16]]()
         for code in codes {
-            let r = Float16(Float(code[0]) / 1023.0).bitPattern
-            let g = Float16(Float(code[1]) / 1023.0).bitPattern
-            let b = Float16(Float(code[2]) / 1023.0).bitPattern
-            let a = Float16(1.0 as Float).bitPattern
-            fp16Codes.append([r, g, b, a])
+            fp16Codes.append([
+                Float16(Float(code[0]) / 1023).bitPattern,
+                Float16(Float(code[1]) / 1023).bitPattern,
+                Float16(Float(code[2]) / 1023).bitPattern,
+                Float16(1).bitPattern
+            ])
         }
         for y in 0..<height {
             let patchRow = y * rows / height
